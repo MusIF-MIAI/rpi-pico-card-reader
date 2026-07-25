@@ -28,9 +28,9 @@ void __not_in_flash_func(core1_entry)(void)
     wire_tx_init();
     feeder_init();
 
-    /* TODO(step 4): irq_set_exclusive_handler + irq_set_enabled here (on
-     * THIS core) for PIO1_IRQ_0, PIO0_IRQ_0, IO_IRQ_BANK0; priorities per
-     * ARCHITECTURE.md sec. 7. */
+    /* RX IRQs (PIO1_IRQ_0, IO_IRQ_BANK0) are claimed inside wire_rx_init,
+     * on this core. TODO(step 4): PIO0_IRQ_0 (presenter TXNFULL) in
+     * wire_tx; priorities per ARCHITECTURE.md sec. 7. */
 
     while (true) {
         /* Op queue from core0 (non-blocking; ipc_send ends with __sev). */

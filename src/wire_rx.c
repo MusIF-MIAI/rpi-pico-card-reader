@@ -2,7 +2,8 @@
  * wire_rx.c -- capture of GE-generated signals: RE byte on TU00N (PIO1),
  * TU03N card feed (GPIO IRQ), both dispatched on core1.
  *
- * STATUS: stub (step 3/4 of the implementation order).
+ * wire_rx_init() MUST run on core1: both IRQs are registered from here so
+ * they land on core1's NVIC.
  */
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
@@ -43,12 +44,17 @@ void wire_rx_init(void)
     gpio_set_dir(GP_TU03N, GPIO_IN);
     gpio_set_inover(GP_TU03N, GPIO_OVERRIDE_INVERT);
 
-    /* TODO(step 4):
-     *   pio_set_irq0_source_enabled(rx_pio, pis_sm0_rx_fifo_not_empty, true);
-     *   irq_set_exclusive_handler(PIO1_IRQ_0, pio1_irq0_handler);
-     *   gpio_set_irq_enabled_with_callback(GP_TU03N, GPIO_IRQ_EDGE_RISE,
-     *                                      true, gpio_irq_handler);
-     *   -- both registered from core1 so they land on core1's NVIC. */
-    (void)pio1_irq0_handler;
-    (void)gpio_irq_handler;
+    /* RE capture: RXNEMPTY is level-triggered, so any word already sitting
+     * in the FIFO is drained the moment the IRQ is enabled. Priorities per
+     * ARCHITECTURE.md sec. 7: RE capture above the card-feed edge. */
+    pio_set_irq0_source_enabled(rx_pio,
+                                pis_sm0_rx_fifo_not_empty + rx_sm, true);
+    irq_set_exclusive_handler(PIO1_IRQ_0, pio1_irq0_handler);
+    irq_set_priority(PIO1_IRQ_0, 0x00);
+    irq_set_enabled(PIO1_IRQ_0, true);
+
+    /* Logical rising edge = wire falling = TU03N asserted (inover invert). */
+    gpio_set_irq_enabled_with_callback(GP_TU03N, GPIO_IRQ_EDGE_RISE,
+                                       true, gpio_irq_handler);
+    irq_set_priority(IO_IRQ_BANK0, 0x40);
 }
