@@ -35,16 +35,21 @@
 #define RE_CAPTURE_PIN_RE1   16u   /* RE01..RE07 = GP16..GP22 */
 #define RE_CAPTURE_PIN_RE0   28u
 
+static inline void re_capture_in_pin(uint pin)
+{
+    /* gpio_init also clears the RP2350 pad-isolation latch -- without it
+     * the pad input never reaches the PIO (or gpio_get). */
+    gpio_init(pin);
+    gpio_set_inover(pin, GPIO_OVERRIDE_INVERT);
+    gpio_set_dir(pin, false);
+}
+
 static inline void re_capture_program_init(PIO pio, uint sm, uint offset)
 {
-    gpio_set_inover(RE_CAPTURE_PIN_TU00N, GPIO_OVERRIDE_INVERT);
-    gpio_set_dir(RE_CAPTURE_PIN_TU00N, false);
-    gpio_set_inover(RE_CAPTURE_PIN_RE0, GPIO_OVERRIDE_INVERT);
-    gpio_set_dir(RE_CAPTURE_PIN_RE0, false);
-    for (uint pin = RE_CAPTURE_PIN_RE1; pin < RE_CAPTURE_PIN_RE1 + 7; pin++) {
-        gpio_set_inover(pin, GPIO_OVERRIDE_INVERT);
-        gpio_set_dir(pin, false);
-    }
+    re_capture_in_pin(RE_CAPTURE_PIN_TU00N);
+    re_capture_in_pin(RE_CAPTURE_PIN_RE0);
+    for (uint pin = RE_CAPTURE_PIN_RE1; pin < RE_CAPTURE_PIN_RE1 + 7; pin++)
+        re_capture_in_pin(pin);
 
     pio_sm_config c = re_capture_program_get_default_config(offset);
     sm_config_set_in_pins(&c, RE_CAPTURE_PIN_RE1);

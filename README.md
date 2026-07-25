@@ -61,7 +61,9 @@ ls                          decks on the drive
 batches                     built-in SAT batch recipes (deck surgery)
 arm funktionalcpu.cap       parse + surgery -> RAM, wait for the GE
 arm ls600-controller-sat    or arm a batch; add --raw for box order
-status | trace on           watch the wire (RE bytes, TU strobes)
+status | trace on           watch the wire (RE bytes, TU strobes; also a
+                            PINS line with every input's standing level
+                            each 500 ms -- active-high logic)
 set w 35 | save             tune LU08N width etc. (100 ns ticks), persist
 ```
 

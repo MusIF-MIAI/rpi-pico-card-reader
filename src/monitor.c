@@ -68,6 +68,35 @@ static const char *ev_name(uint8_t kind)
     }
 }
 
+#ifdef PICO_BUILD
+#include "hardware/gpio.h"
+#include "ge_proto.h"
+
+#define PINS_SNAPSHOT_US (500u * 1000u)
+
+/* Standing level of every GE->Pico input, printed each 500 ms of trace.
+ * Values are logical (active-high; the wire is the inverse) -- except any
+ * pin whose inover override is NORMAL, which would read as the wire. */
+static void pins_snapshot(void)
+{
+    static uint32_t next_us;
+    uint32_t t = time_us_32();
+    if ((int32_t)(t - next_us) < 0)
+        return;
+    next_us = t + PINS_SNAPSHOT_US;
+
+    uint8_t re = gpio_get(GP_RE0) ? 1u : 0u;
+    for (unsigned i = 0; i < 7; i++)
+        if (gpio_get(GP_RE1 + i))
+            re |= (uint8_t)(1u << (i + 1));
+    out_printf("[%10lu us] PINS    TU00=%d TU03=%d RE=0x%02x\r\n",
+               (unsigned long)t, gpio_get(GP_TU00N) ? 1 : 0,
+               gpio_get(GP_TU03N) ? 1 : 0, re);
+}
+#else
+static void pins_snapshot(void) { }
+#endif
+
 /* core0 main loop. With trace off the ring is left alone, so `trace on`
  * starts by dumping the most recent EV_RING_LEN events -- free history. */
 void monitor_drain(void)
@@ -78,4 +107,5 @@ void monitor_drain(void)
     while (ev_pop(&e))
         out_printf("[%10lu us] %s 0x%02x\r\n",
                    (unsigned long)e.t_us, ev_name(e.kind), e.arg);
+    pins_snapshot();
 }
