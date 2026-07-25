@@ -1,5 +1,14 @@
 # rpi-pico-card-reader — GE-120 punched-card reader simulator
 
+Copyright (C) 2026 Verde Binario
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation, version 3. This program is distributed in the hope
+that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See
+[COPYING](COPYING) for the full text.
+
 Raspberry Pi Pico 2 W firmware that stands in for the GE-120's card reader
 (LS 600 / GIS 450 controller). It plugs into the CPU backplane at the three
 connector-2 COCA slots (I1 / L1 / M1), holds the Site Acceptance Test decks
