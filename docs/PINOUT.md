@@ -77,24 +77,79 @@ strap.
 Unresolved L1 pins, left unconnected: L1·01 `CASUS`, L1·10 `LU20B`,
 L1·12 `LU21B`.
 
-## 4. Level-shifter banking
+## 4. Level shifters — 4× LM54LVC245AN (confirmed 2026-07-25)
 
-User's parts: unidirectional 74xx-family (exact code TBD), **all ports of one
-IC in the same direction**. Suggested types if compatible with the parts on
-hand — outputs: 74AHCT541-class (VCC = GE +5.2 V, 3.3 V-CMOS-compatible
-inputs, tri-state `OE` for the passive bring-up phase); inputs:
-74LVC541-class (VCC = 3.3 V, 5 V-tolerant inputs).
+LM54LVC245AN = mil-temp DIP-20 74LVC245A octal transceiver: VCC ≤ 3.6 V,
+**5 V-tolerant I/O**, one DIR pin per chip (all 8 bits one direction), OE#
+tri-state. Pinout: 1=DIR, 2-9=A1-A8, 10=GND, 11-18=B8-B1 (mirrored),
+19=OE#, 20=VCC.
 
-| IC | Direction | Lines | Pico pins | GE pins |
-|---|---|---|---|---|
-| A | 3.3 → 5.2 V | LU00N-LU07N | GP0-7 | M1·01-04,06,07,09,10 |
-| B | 3.3 → 5.2 V | FININ, LU08N, LUPOR, FIDEN, POM01, LUREN (+2 spare) | GP8-13 | L1·06, M1·15, L1·07, L1·03, M1·12, L1·09 |
-| C | 5.2 → 3.3 V | RE00N-RE07N | GP15-22 | I1·01-04,06,07,09,10 |
-| D | 5.2 → 3.3 V | TU00N, TU03N (+6 spare) | GP14, GP26 | I1·15, M1·13 |
+**Power all four chips from the Pico 3V3 rail — never from the GE +5.2 V**
+(LVC abs-max VCC 3.6 V). 100 nF decoupling per chip. GE 5.2 V signals into
+the B ports are within the 5.5 V I/O tolerance.
 
-Wire **both output banks' `OE#` (or equivalent) to a Pico GPIO** (suggest
-GP28) so the passive bring-up phase can tri-state every GE-facing driver in
-hardware, not just by GPIO direction.
+⚠️ Toward the GE, a driven high is **3.3 V, not 5.2 V**. Active-low lows are
+solid 0 V, but if the GE input threshold were above 3.3 V, *inactive* status
+lines (e.g. LUREN) would falsely read asserted. The passive first session
+must also measure what voltage a genuine backplane high sits at before
+enabling the output banks. Hedge: 33-100 Ω series resistors on every B-side
+line + unpopulated pull-up footprints (interacts with OPEN #5).
+
+### IC1 — LU data bus (out, Pico→GE) · DIR=3V3 (A→B), OE#=GP28
+
+| Pico header | GP | A pin | B pin | COCA pin | Signal |
+|---|---|---|---|---|---|
+| 1 | GP0 | A1 (2) | B1 (18) | M1·01 | LU00N |
+| 2 | GP1 | A2 (3) | B2 (17) | M1·02 | LU01N |
+| 4 | GP2 | A3 (4) | B3 (16) | M1·03 | LU02N |
+| 5 | GP3 | A4 (5) | B4 (15) | M1·04 | LU03N |
+| 6 | GP4 | A5 (6) | B5 (14) | M1·06 | LU04N |
+| 7 | GP5 | A6 (7) | B6 (13) | M1·07 | LU05N |
+| 9 | GP6 | A7 (8) | B7 (12) | M1·09 | LU06N |
+| 10 | GP7 | A8 (9) | B8 (11) | M1·10 | LU07N |
+
+### IC2 — strobes + status (out, Pico→GE) · DIR=3V3, OE#=GP28
+
+| Pico header | GP | A pin | B pin | COCA pin | Signal |
+|---|---|---|---|---|---|
+| 11 | GP8 | A1 (2) | B1 (18) | L1·06 | FININ |
+| 12 | GP9 | A2 (3) | B2 (17) | M1·15 | LU08N |
+| 14 | GP10 | A3 (4) | B3 (16) | L1·07 | LUPOR |
+| 15 | GP11 | A4 (5) | B4 (15) | L1·03 | FIDEN |
+| 16 | GP12 | A5 (6) | B5 (14) | M1·12 | POM01 |
+| 17 | GP13 | A6 (7) | B6 (13) | L1·09 | LUREN |
+| — | — | A7,A8 → GND | B7,B8 n/c | — | spare (LVC inputs must not float) |
+
+### IC3 — RE command bus (in, GE→Pico) · DIR=GND (B→A), OE#=GND
+
+| COCA pin | Signal | B pin | A pin | GP | Pico header |
+|---|---|---|---|---|---|
+| I1·01 | RE00N | B1 (18) | A1 (2) | GP15 | 20 |
+| I1·02 | RE01N | B2 (17) | A2 (3) | GP16 | 21 |
+| I1·03 | RE02N | B3 (16) | A3 (4) | GP17 | 22 |
+| I1·04 | RE03N | B4 (15) | A4 (5) | GP18 | 24 |
+| I1·06 | RE04N | B5 (14) | A5 (6) | GP19 | 25 |
+| I1·07 | RE05N | B6 (13) | A6 (7) | GP20 | 26 |
+| I1·09 | RE06N | B7 (12) | A7 (8) | GP21 | 27 |
+| I1·10 | RE07N | B8 (11) | A8 (9) | GP22 | 29 |
+
+### IC4 — GE strobes (in, GE→Pico) · DIR=GND, OE#=GND
+
+| COCA pin | Signal | B pin | A pin | GP | Pico header |
+|---|---|---|---|---|---|
+| I1·15 | TU00N | B1 (18) | A1 (2) | GP14 | 19 |
+| M1·13 | TU03N | B2 (17) | A2 (3) | GP26 | 31 |
+| — | spare: B3-B8 → GND | | | (future RE08N parity, I1·12) | |
+
+### Not through any shifter
+
+| Connection | From | To |
+|---|---|---|
+| Output tri-state | GP28 (header 34) | IC1+IC2 OE# (pin 19); **pull-up to 3V3 so boot/reset = passive** |
+| Scope trigger | GP27 (header 32) | bench only |
+| VCC | Pico 3V3 OUT (header 36) | pin 20 × 4 |
+| Ground | Pico GND (3/8/…/38) | pin 10 × 4 + ZERO1 (pin 05 of I1/L1/M1), star-joined |
+| Straps | LESAB→L1·15 active, LUSEN→L1·04 inactive, LENON→L1·13 inactive | jumpered, liftable for passive mode; tie form per OPEN #5 |
 
 GP27 = scope-trigger output (Pico-side only, no shifter). GP23/24/25/29 are
 CYW43-reserved on the Pico 2 **W** — never assign them.
