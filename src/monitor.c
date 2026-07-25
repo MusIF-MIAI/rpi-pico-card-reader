@@ -8,7 +8,18 @@
 #include <stdio.h>
 #include "events.h"
 
+#ifdef PICO_BUILD
+#include "console.h"
+#define out_printf con_printf
+#else
+#define out_printf printf
+#endif
+
 struct ev_ring g_events;
+static int trace_on;
+
+void monitor_set_trace(int on) { trace_on = on; }
+int  monitor_trace(void)       { return trace_on; }
 
 #ifdef PICO_BUILD
 #include "pico/time.h"
@@ -57,11 +68,14 @@ static const char *ev_name(uint8_t kind)
     }
 }
 
-/* core0: drain and pretty-print pending events (called when trace is on). */
+/* core0 main loop. With trace off the ring is left alone, so `trace on`
+ * starts by dumping the most recent EV_RING_LEN events -- free history. */
 void monitor_drain(void)
 {
     struct event e;
+    if (!trace_on)
+        return;
     while (ev_pop(&e))
-        printf("[%10lu us] %s 0x%02x\r\n",
-               (unsigned long)e.t_us, ev_name(e.kind), e.arg);
+        out_printf("[%10lu us] %s 0x%02x\r\n",
+                   (unsigned long)e.t_us, ev_name(e.kind), e.arg);
 }

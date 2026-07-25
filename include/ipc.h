@@ -11,14 +11,21 @@
 #include <stdint.h>
 #include "deckimg.h"
 
+/* FIFO word layout: op in bits 7:0, small arg in bits 15:8 (deck slot,
+ * on/off, param id), 16-bit value in bits 31:16 (SET_PARAM). */
+#define IPC_WORD(op, arg, val) \
+    ((uint32_t)(op) | ((uint32_t)(arg) << 8) | ((uint32_t)(val) << 16))
+#define IPC_OP(w)   ((uint8_t)(w))
+#define IPC_ARG(w)  ((uint8_t)((w) >> 8))
+#define IPC_VAL(w)  ((uint16_t)((w) >> 16))
+
 enum ipc_op {
-    IPC_ARM = 1,        /* arg: deck slot (0/1); deck_img pointer pre-agreed */
+    IPC_ARM = 1,        /* arg: deck slot (0/1) in g_deck[]                  */
     IPC_DISARM,
     IPC_REWIND,
     IPC_EJECT,          /* skip current card                                 */
-    IPC_SET_PARAM,      /* arg: (param_id << 16) | value                     */
+    IPC_SET_PARAM,      /* arg: enum ipc_param; val: new value               */
     IPC_INJECT_ERROR,   /* assert LUREN until GE sends 0x47                  */
-    IPC_PASSIVE,        /* arg: 1 = tri-state outputs (bring-up), 0 = drive  */
 };
 
 enum ipc_param {

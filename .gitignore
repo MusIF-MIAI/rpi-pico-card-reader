@@ -1,5 +1,8 @@
 build/
 build-tools/
 test/host/test_deck
+test/host/test_fat
+test/host/fixture.img
+test/host/*.cap
 decks/
 __pycache__/

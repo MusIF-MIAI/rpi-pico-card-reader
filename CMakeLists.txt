@@ -21,7 +21,9 @@ add_executable(ge120_cardreader
     src/usb_descriptors.c
     src/console.c
     src/storage.c
+    src/fat_ro.c
     src/deck.c
+    src/deckload.c
     src/surgery.c
     src/transcode.c
     src/config.c

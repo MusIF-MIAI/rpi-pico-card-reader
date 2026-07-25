@@ -39,19 +39,25 @@ Bank A (8 lines): GP0-7. Bank B (6 lines): GP8-13, 2 spare positions.
 
 | Pico GP | Signal | COCA slot·pin | Atlas cell | Consumed by |
 |---|---|---|---|---|
-| GP14 | TU00N (command strobe, ~1.2 µs) | I1·15 | `TU00B` | PIO1 SM0 trigger (`wait gpio`) + GPIO IRQ (stats) |
-| GP15 | RE00N | I1·01 | `RE00B` | PIO1 SM0 `in pins` bit 0 |
-| GP16 | RE01N | I1·02 | `RE018` | `in` bit 1 |
-| GP17 | RE02N | I1·03 | `RE02B` | `in` bit 2 |
-| GP18 | RE03N | I1·04 | `RE03B` | `in` bit 3 |
-| GP19 | RE04N | I1·06 | `RE04B` | `in` bit 4 |
-| GP20 | RE05N | I1·07 | `RE05B` | `in` bit 5 |
-| GP21 | RE06N | I1·09 | `RE06B` | `in` bit 6 |
-| GP22 | RE07N | I1·10 | `RE07B` | `in` bit 7 |
+| GP16 | RE01N | I1·02 | `RE018` | PIO1 SM0 `in pins` bit 0 |
+| GP17 | RE02N | I1·03 | `RE02B` | `in` bit 1 |
+| GP18 | RE03N | I1·04 | `RE03B` | `in` bit 2 |
+| GP19 | RE04N | I1·06 | `RE04B` | `in` bit 3 |
+| GP20 | RE05N | I1·07 | `RE05B` | `in` bit 4 |
+| GP21 | RE06N | I1·09 | `RE06B` | `in` bit 5 |
+| GP22 | RE07N | I1·10 | `RE07B` | `in` bit 6 |
 | GP26 | TU03N (card feed) | M1·13 | `TU038` | GPIO IRQ on core1 (proc1 routing) |
+| GP27 | TU00N (command strobe, ~1.2 µs) | I1·15 | `TU00B` | PIO1 SM0 trigger (`wait gpio`) + GPIO IRQ (stats) |
+| GP28 | RE00N | I1·01 | `RE00B` | PIO1 SM0 `in pins` bit 12 |
 
-Bank C (8 lines): GP15-22 (RE bus — contiguous, required for PIO `in pins`).
-Bank D (2 lines): GP14, GP26, 6 spare positions (future: RE08N parity I1·12,
+**GP14 and GP15 are reserved for later** (unconnected, headers 19/20); TU00N
+and RE00N, formerly there, now sit on GP27 and GP28. The RE bus is therefore
+no longer contiguous: PIO1 SM0 samples the 13-pin window GP16-28 in a single
+`in pins, 13` (bits 0-6 = RE01-07, bit 12 = RE00) and firmware reassembles
+the byte; bits 7-11 (GP23-25 CYW43, GP26, GP27) are masked out.
+
+Bank C (8 lines): RE bus — RE01-07 → GP16-22, RE00 → GP28.
+Bank D (2 lines): GP27, GP26, 6 spare positions (future: RE08N parity I1·12,
 LU20B/LU21B if they turn out to matter).
 
 RE08N (odd parity, I1·12) is deliberately not sensed in phase 1.
@@ -95,7 +101,7 @@ must also measure what voltage a genuine backplane high sits at before
 enabling the output banks. Hedge: 33-100 Ω series resistors on every B-side
 line + unpopulated pull-up footprints (interacts with OPEN #5).
 
-### IC1 — LU data bus (out, Pico→GE) · DIR=3V3 (A→B), OE#=GP28
+### IC1 — LU data bus (out, Pico→GE) · DIR=3V3 (A→B), OE#=JP-OE jumper
 
 | Pico header | GP | A pin | B pin | COCA pin | Signal |
 |---|---|---|---|---|---|
@@ -108,7 +114,7 @@ line + unpopulated pull-up footprints (interacts with OPEN #5).
 | 9 | GP6 | A7 (8) | B7 (12) | M1·09 | LU06N |
 | 10 | GP7 | A8 (9) | B8 (11) | M1·10 | LU07N |
 
-### IC2 — strobes + status (out, Pico→GE) · DIR=3V3, OE#=GP28
+### IC2 — strobes + status (out, Pico→GE) · DIR=3V3, OE#=JP-OE jumper
 
 | Pico header | GP | A pin | B pin | COCA pin | Signal |
 |---|---|---|---|---|---|
@@ -124,7 +130,7 @@ line + unpopulated pull-up footprints (interacts with OPEN #5).
 
 | COCA pin | Signal | B pin | A pin | GP | Pico header |
 |---|---|---|---|---|---|
-| I1·01 | RE00N | B1 (18) | A1 (2) | GP15 | 20 |
+| I1·01 | RE00N | B1 (18) | A1 (2) | GP28 | 34 |
 | I1·02 | RE01N | B2 (17) | A2 (3) | GP16 | 21 |
 | I1·03 | RE02N | B3 (16) | A3 (4) | GP17 | 22 |
 | I1·04 | RE03N | B4 (15) | A4 (5) | GP18 | 24 |
@@ -137,7 +143,7 @@ line + unpopulated pull-up footprints (interacts with OPEN #5).
 
 | COCA pin | Signal | B pin | A pin | GP | Pico header |
 |---|---|---|---|---|---|
-| I1·15 | TU00N | B1 (18) | A1 (2) | GP14 | 19 |
+| I1·15 | TU00N | B1 (18) | A1 (2) | GP27 | 32 |
 | M1·13 | TU03N | B2 (17) | A2 (3) | GP26 | 31 |
 | — | spare: B3-B8 → GND | | | (future RE08N parity, I1·12) | |
 
@@ -145,14 +151,13 @@ line + unpopulated pull-up footprints (interacts with OPEN #5).
 
 | Connection | From | To |
 |---|---|---|
-| Output tri-state | GP28 (header 34) | IC1+IC2 OE# (pin 19); **pull-up to 3V3 so boot/reset = passive** |
-| Scope trigger | GP27 (header 32) | bench only |
+| Output enable | JP-OE jumper | IC1+IC2 OE# (pin 19); **pull-up to 3V3, so jumper open = tri-stated/passive**; close to GND to drive the backplane. No firmware control. |
+| Reserved | GP14 (header 19), GP15 (header 20) | unconnected, reserved for later |
 | VCC | Pico 3V3 OUT (header 36) | pin 20 × 4 |
 | Ground | Pico GND (3/8/…/38) | pin 10 × 4 + ZERO1 (pin 05 of I1/L1/M1), star-joined |
 | Straps | LESAB→L1·15 active, LUSEN→L1·04 inactive, LENON→L1·13 inactive | jumpered, liftable for passive mode; tie form per OPEN #5 |
 
-GP27 = scope-trigger output (Pico-side only, no shifter). GP23/24/25/29 are
-CYW43-reserved on the Pico 2 **W** — never assign them.
+GP23/24/25/29 are CYW43-reserved on the Pico 2 **W** — never assign them.
 
 ## 5. Corrections vs. `board-design/*_f7_reference.md`
 

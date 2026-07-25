@@ -19,12 +19,9 @@ void wire_tx_init(void)
     tx_sm = pio_claim_unused_sm(tx_pio, true);
     presenter_program_init(tx_pio, tx_sm, offset);
 
-    /* Output level shifters stay tri-stated (GP_SHIFT_OE high) until the
-     * console leaves passive mode -- first sessions on the machine only
-     * listen. */
-    gpio_init(GP_SHIFT_OE);
-    gpio_set_dir(GP_SHIFT_OE, GPIO_OUT);
-    gpio_put(GP_SHIFT_OE, 1);   /* OE# high = disabled */
+    /* The output level shifters' OE# is a hardware jumper (pull-up to 3V3
+     * = tri-stated/passive); firmware has no control over it. First
+     * sessions on the machine only listen: leave the jumper open. */
 
     /* TODO(step 4): TXNFULL IRQ -> feeder_on_txfeed; enable SM + drive
      * LUPOR ready level on ARM; abort/drain on DISARM/reject. */

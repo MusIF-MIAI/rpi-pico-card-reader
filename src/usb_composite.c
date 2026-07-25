@@ -10,8 +10,7 @@
 #include "tusb.h"
 #include "config.h"
 #include "ipc.h"
-
-int storage_read_blocks(uint32_t lba, void *buf, uint32_t count);
+#include "storage.h"
 
 void usb_composite_init(void)
 {
@@ -51,9 +50,9 @@ void tud_msc_capacity_cb(uint8_t lun, uint32_t *block_count,
 bool tud_msc_is_writable_cb(uint8_t lun)
 {
     (void)lun;
-    /* TODO(step 2): true while g_feeder_status.state == FS_DISARMED, once
-     * storage_write_blocks runs under pico_flash safe-execute. */
-    return false;
+    /* Writable only while no feed session is armed: flash programming
+     * stalls XIP and must never race a live LOAD. */
+    return g_feeder_status.state == FS_DISARMED;
 }
 
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
@@ -70,13 +69,36 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,
                            uint8_t *buffer, uint32_t bufsize)
 {
-    (void)lun; (void)lba; (void)offset; (void)buffer; (void)bufsize;
-    return -1;   /* write-protected (see tud_msc_is_writable_cb) */
+    (void)lun;
+    if (g_feeder_status.state != FS_DISARMED)
+        return -1;
+    if (offset % 512 || bufsize % 512)
+        return -1;
+    if (storage_write_blocks(lba + offset / 512, buffer, bufsize / 512))
+        return -1;
+    return (int32_t)bufsize;
+}
+
+bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition,
+                           bool start, bool load_eject)
+{
+    (void)lun; (void)power_condition; (void)start;
+    if (load_eject)
+        storage_flush();
+    return true;
 }
 
 int32_t tud_msc_scsi_cb(uint8_t lun, const uint8_t scsi_cmd[16],
                         void *buffer, uint16_t bufsize)
 {
-    (void)lun; (void)scsi_cmd; (void)buffer; (void)bufsize;
-    return -1;   /* unsupported commands -> sense set by stack */
+    (void)lun; (void)buffer; (void)bufsize;
+    switch (scsi_cmd[0]) {
+    case 0x35:                   /* SYNCHRONIZE CACHE (10) */
+        storage_flush();
+        return 0;
+    case 0x1E:                   /* PREVENT/ALLOW MEDIUM REMOVAL */
+        return 0;
+    default:
+        return -1;               /* unsupported -> sense set by stack */
+    }
 }

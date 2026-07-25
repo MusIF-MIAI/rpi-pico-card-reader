@@ -14,6 +14,7 @@
 #include "feeder.h"
 #include "events.h"
 #include "ge_proto.h"
+#include "status_pins.h"
 
 struct feeder_status g_feeder_status;
 struct deck_img      g_deck[2];
@@ -21,16 +22,33 @@ struct deck_img      g_deck[2];
 static struct {
     const struct deck_img *deck;   /* armed deck (RAM), NULL if disarmed    */
     enum tc_mode latched_mode;     /* from COCON-equivalent command decode  */
-    uint8_t      post_loader_colbin;
     uint8_t      presenting;
     uint8_t      finin_pending;    /* FININ nibble pushed, not yet released */
+    /* live copies of the tunables (core1-owned; updated via IPC_SET_PARAM) */
+    uint16_t     w_ticks, g_ticks, s_ticks, d_us, finin_to_us;
+    uint8_t      post_loader_colbin, auto_rewind;
 } fd;
+
+static void cursor_reset(void)
+{
+    g_feeder_status.card = 0;
+    g_feeder_status.col  = 0;
+    g_feeder_status.half = 0;
+    fd.presenting = 0;
+    fd.finin_pending = 0;
+}
 
 void feeder_init(void)
 {
     g_feeder_status.state = FS_DISARMED;
     fd.latched_mode = TC_HEX;      /* IPL reads the loader card "unchanged" */
+    fd.w_ticks = T_STROBE_TICKS_DEF;
+    fd.g_ticks = T_GAP_TICKS_DEF;
+    fd.s_ticks = T_SETUP_TICKS_DEF;
+    fd.d_us    = T_CMD_DELAY_US_DEF;
+    fd.finin_to_us = T_FININ_TIMEOUT_US_DEF;
     fd.post_loader_colbin = 1;     /* OPEN #1 default policy                */
+    fd.auto_rewind = 1;
 }
 
 /* One nibble presentation: transcode the current column per the effective
@@ -76,7 +94,9 @@ void feeder_on_re_cmd(uint8_t re)
          * samples them itself at state cc. */
         break;
     case GE_CMD_RESET_ERROR:
-        /* TODO: clear LUREN latch + pin; FS_ERROR -> previous state. */
+        status_pin_set(GP_LUREN, false);
+        if (g_feeder_status.state == FS_ERROR)
+            g_feeder_status.state = fd.deck ? FS_ARMED_WAIT : FS_DISARMED;
         break;
     case GE_CMD_CARD_REJECT:
         /* TODO: advance past current card without presenting. */
@@ -106,10 +126,53 @@ void feeder_on_txfeed(void)
 
 void feeder_on_ipc(uint32_t word)
 {
-    /* TODO: decode enum ipc_op (low 8 bits) + arg; ARM copies the deck
-     * pointer, raises LUPOR (enables the presenter SM), REWIND resets the
-     * cursor, SET_PARAM updates cfg mirrors, PASSIVE toggles GP_SHIFT_OE. */
-    (void)word;
+    switch (IPC_OP(word)) {
+    case IPC_ARM:
+        fd.deck = &g_deck[IPC_ARG(word) & 1];
+        fd.latched_mode = TC_HEX;
+        cursor_reset();
+        g_feeder_status.n_cmds = g_feeder_status.n_feeds = 0;
+        g_feeder_status.n_autofeeds = g_feeder_status.n_nibbles = 0;
+        g_feeder_status.n_unknown_cmd = 0;
+        g_feeder_status.mode = TC_HEX;
+        g_feeder_status.state = FS_ARMED_WAIT;
+        /* TODO(step 4): enable presenter SM, raise LUPOR ready level. */
+        break;
+    case IPC_DISARM:
+        fd.deck = NULL;
+        cursor_reset();
+        g_feeder_status.state = FS_DISARMED;
+        /* TODO(step 4): drop LUPOR, drain presenter FIFO. */
+        break;
+    case IPC_REWIND:
+        cursor_reset();
+        if (fd.deck)
+            g_feeder_status.state = FS_ARMED_WAIT;
+        break;
+    case IPC_EJECT:
+        if (fd.deck && g_feeder_status.card + 1u < fd.deck->n_cards) {
+            g_feeder_status.card++;
+            g_feeder_status.col = g_feeder_status.half = 0;
+        }
+        break;
+    case IPC_SET_PARAM:
+        switch (IPC_ARG(word)) {
+        case PARAM_W_TICKS:     fd.w_ticks     = IPC_VAL(word); break;
+        case PARAM_G_TICKS:     fd.g_ticks     = IPC_VAL(word); break;
+        case PARAM_S_TICKS:     fd.s_ticks     = IPC_VAL(word); break;
+        case PARAM_D_US:        fd.d_us        = IPC_VAL(word); break;
+        case PARAM_FININ_TO_US: fd.finin_to_us = IPC_VAL(word); break;
+        case PARAM_POLICY:
+            fd.post_loader_colbin = IPC_VAL(word) & 1;
+            fd.auto_rewind        = (IPC_VAL(word) >> 1) & 1;
+            break;
+        }
+        break;
+    case IPC_INJECT_ERROR:
+        status_pin_set(GP_LUREN, true);
+        g_feeder_status.state = FS_ERROR;
+        break;
+    }
 }
 
 void feeder_poll(void)

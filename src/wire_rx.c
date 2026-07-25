@@ -19,11 +19,9 @@ static void __not_in_flash_func(pio1_irq0_handler)(void)
 {
     while (!pio_sm_is_rx_fifo_empty(rx_pio, rx_sm)) {
         uint32_t w = pio_sm_get(rx_pio, rx_sm);
-        /* in shift-left, 8 bits: RE byte is the low byte */
-        feeder_on_re_cmd((uint8_t)(w & 0xFF));
-        /* Bring-up aid: pulse the scope trigger per captured command. */
-        gpio_put(GP_SCOPE_TRIG, 1);
-        gpio_put(GP_SCOPE_TRIG, 0);
+        /* 13-pin window GP16..GP28 (shift-left): bits 0-6 = RE01-07,
+         * bit 12 = RE00; bits 7-11 (CYW43 pins, TU03N, TU00N) are junk. */
+        feeder_on_re_cmd((uint8_t)(((w >> 12) & 1u) | ((w << 1) & 0xFEu)));
     }
 }
 
@@ -36,9 +34,6 @@ static void __not_in_flash_func(gpio_irq_handler)(uint gpio, uint32_t events)
 
 void wire_rx_init(void)
 {
-    gpio_init(GP_SCOPE_TRIG);
-    gpio_set_dir(GP_SCOPE_TRIG, GPIO_OUT);
-
     uint offset = pio_add_program(rx_pio, &re_capture_program);
     rx_sm = pio_claim_unused_sm(rx_pio, true);
     re_capture_program_init(rx_pio, rx_sm, offset);

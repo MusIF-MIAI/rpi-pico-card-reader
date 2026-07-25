@@ -226,9 +226,11 @@ XIP**, and core1 must keep running through them.
   nibble, `[FININ:1 | data:8]` in the low 9 bits; `out pins, 9` drives
   LU00-07+FININ; 2-bit side-set drives {LU08N, LUPOR} as complements; W and G
   delay loops count preloaded values. TX-not-full IRQ keeps the FIFO fed.
-- **PIO1 SM0 — RE capture** (`pio/re_capture.pio`): wait for the TU00N active
-  edge, delay ~300 ns to mid-pulse, `in pins, 8` (RE00-07, contiguous
-  GP15-22), `push` → RX FIFO → IRQ to core1. Immune to IRQ-latency jitter.
+- **PIO1 SM0 — RE capture** (`pio/re_capture.pio`): wait for the TU00N
+  (GP27) active edge, delay ~300 ns to mid-pulse, `in pins, 13` over the
+  GP16-28 window (RE01-07 on GP16-22, RE00 on GP28 — GP14/15 are reserved,
+  so the bus is not contiguous), `push` → RX FIFO → IRQ to core1, which
+  masks the junk bits and reassembles the byte. Immune to IRQ-latency jitter.
 - TU03N: plain GPIO IRQ (edge) on core1 — pulse is a full machine-cycle
   event and needs no sub-µs capture.
 
@@ -311,8 +313,8 @@ version | help
    analyzer: W/G/S timing, FININ ride, LUPOR complement.
 4. **core1 integration**: IRQ routing, SRAM residency, MSC write lockout.
 5. **Passive bring-up on the real machine — inputs only, outputs
-   tri-stated**: log RE/TU00N/TU03N during a console LOAD attempt
-   (resolves OPEN 1/3). GP27 emits a scope trigger per captured command.
+   tri-stated (JP-OE jumper open)**: log RE/TU00N/TU03N during a console
+   LOAD attempt (resolves OPEN 1/3).
 6. **Active load**: loader card alone, then full decks; tune W/G (OPEN 2/4);
    then SAT batches, auto-rewind polish, error injection.
 

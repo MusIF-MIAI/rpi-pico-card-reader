@@ -24,18 +24,18 @@
 #define GP_POM01      12   /* M1.12  binary-mode indicator (software GPIO)  */
 #define GP_LUREN      13   /* L1.09  error (software GPIO)                  */
 
-/* Inputs, CPU -> reader. */
-#define GP_TU00N      14   /* I1.15  command strobe ~1.2us (PIO1 trigger)   */
-#define GP_RE0        15   /* I1.01  RE00N; GP15..GP22 = RE00..RE07,
-                            * contiguous for PIO `in pins, 8`               */
+/* Inputs, CPU -> reader. GP14/GP15 are reserved for future use; RE00N and
+ * TU00N therefore live on GP28/GP27. The PIO samples the 13-pin window
+ * GP16..GP28 in one shot and the CPU reassembles the RE byte (wire_rx.c). */
+#define GP_RE1        16   /* I1.02  RE01N; GP16..GP22 = RE01..RE07         */
 #define GP_TU03N      26   /* M1.13  card-feed strobe (GPIO IRQ, core1)     */
-
-/* Misc. */
-#define GP_SCOPE_TRIG 27   /* bring-up: pulse per captured command          */
-#define GP_SHIFT_OE   28   /* output level-shifter OE# (tri-state = passive)*/
+#define GP_TU00N      27   /* I1.15  command strobe ~1.2us (PIO1 trigger)   */
+#define GP_RE0        28   /* I1.01  RE00N (bit 12 of the PIO window)       */
 
 /* Straps on the adapter, no GPIO: LESAB (L1.15) active, LUSEN (L1.04,
- * "LOSES") inactive, LENON (L1.13) inactive.                               */
+ * "LOSES") inactive, LENON (L1.13) inactive. The output level-shifter OE#
+ * (IC1+IC2) is a jumper: pull-up to 3V3 = tri-stated/passive, strap to GND
+ * to drive the backplane. No firmware control.                             */
 
 /* ---- Reader command codes (RE byte, latched on TU00N) ------------------ */
 /* gemu reader.c:6-20 + software/loader.txt.                                */

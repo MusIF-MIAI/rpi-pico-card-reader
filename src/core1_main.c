@@ -18,6 +18,10 @@ void status_pins_init(void); /* status_pins.c: FIDEN/POM01/LUREN             */
 
 void __not_in_flash_func(core1_entry)(void)
 {
+    /* Let core0's flash_safe_execute (MSC/config writes) pause this core;
+     * only ever exercised while DISARMED, when core1 is idle in SRAM. */
+    multicore_lockout_victim_init();
+
     status_pins_init();
     wire_rx_init();
     wire_tx_init();

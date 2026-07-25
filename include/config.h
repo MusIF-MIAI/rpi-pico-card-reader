@@ -9,6 +9,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "ge_proto.h"
 
@@ -27,7 +28,6 @@ struct cfg {
     uint8_t  post_loader_colbin;  /* OPEN #1 policy, default 1               */
     uint8_t  auto_rewind;         /* idle auto-rewind, default 1             */
     uint8_t  auto_rewind_s;       /* idle threshold, default 5               */
-    uint8_t  passive;             /* boot with outputs tri-stated, default 1 */
     char     last_deck[48];
     uint32_t crc;
 };
