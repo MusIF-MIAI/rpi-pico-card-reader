@@ -1,0 +1,5 @@
+build/
+build-tools/
+test/host/test_deck
+decks/
+__pycache__/

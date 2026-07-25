@@ -1,0 +1,50 @@
+;
+; re_capture -- latch the RE command byte on every TU00N strobe.
+;
+; TU00N (GP14) is the CPU's ~1.2 us command one-shot (CE10, "UNIV 1.2 us").
+; RE00N-RE07N sit on GP15..GP22 (contiguous -- required for `in pins, 8`).
+; All pins use GPIO_OVERRIDE_INVERT, so logically TU00N reads 1 while the
+; strobe is asserted and `in pins` yields the active-high RE byte.
+;
+; The sample is taken ~300 ns into the pulse (mid-pulse, well inside the
+; window, immune to CPU IRQ latency). One capture per strobe: we wait for
+; the strobe to end before re-arming.
+;
+; Each captured byte lands in the RX FIFO; the CPU (core1) takes an IRQ on
+; RX-not-empty and dispatches per the command matrix (ARCHITECTURE.md sec.4).
+;
+; Clocking: 10 MHz (tick = 100 ns).
+
+.program re_capture
+
+.wrap_target
+    wait 1 gpio 14  [2]   ; TU00N asserted; +300 ns to mid-pulse
+    in pins, 8            ; sample RE00-07
+    push block            ; -> RX FIFO (IRQ via RXNEMPTY)
+    wait 0 gpio 14        ; strobe end: exactly one capture per pulse
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+#define RE_CAPTURE_PIN_TU00N 14u
+#define RE_CAPTURE_PIN_RE0   15u
+
+static inline void re_capture_program_init(PIO pio, uint sm, uint offset)
+{
+    gpio_set_inover(RE_CAPTURE_PIN_TU00N, GPIO_OVERRIDE_INVERT);
+    gpio_set_dir(RE_CAPTURE_PIN_TU00N, false);
+    for (uint pin = RE_CAPTURE_PIN_RE0; pin < RE_CAPTURE_PIN_RE0 + 8; pin++) {
+        gpio_set_inover(pin, GPIO_OVERRIDE_INVERT);
+        gpio_set_dir(pin, false);
+    }
+
+    pio_sm_config c = re_capture_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, RE_CAPTURE_PIN_RE0);
+    sm_config_set_in_shift(&c, false /*shift left*/, false, 32);
+    sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / 10e6f);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
