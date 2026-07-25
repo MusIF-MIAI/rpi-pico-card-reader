@@ -1,17 +1,19 @@
 /*
  * ipc.h -- core0 <-> core1 protocol.
  *
- * core0 -> core1: 32-bit opcodes over the SIO multicore FIFO (low 8 bits op,
- * high 24 bits argument). core1 never blocks on core0: it publishes into the
- * volatile status struct and the lock-free event ring; core0 polls.
+ * core0 -> core1: 32-bit opcodes over a pico_util queue (ipc.c -- NOT the
+ * SIO multicore FIFO, which the lockout victim handler owns). core1 never
+ * blocks on core0: it publishes into the volatile status struct and the
+ * lock-free event ring; core0 polls.
  */
 #ifndef IPC_H
 #define IPC_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include "deckimg.h"
 
-/* FIFO word layout: op in bits 7:0, small arg in bits 15:8 (deck slot,
+/* Op word layout: op in bits 7:0, small arg in bits 15:8 (deck slot,
  * on/off, param id), 16-bit value in bits 31:16 (SET_PARAM). */
 #define IPC_WORD(op, arg, val) \
     ((uint32_t)(op) | ((uint32_t)(arg) << 8) | ((uint32_t)(val) << 16))
@@ -62,5 +64,9 @@ struct feeder_status {
 
 extern struct feeder_status g_feeder_status;
 extern struct deck_img      g_deck[2];      /* double buffer, SRAM           */
+
+void ipc_init(void);                        /* core0, before core1 launch    */
+void ipc_send(uint8_t op, uint8_t arg, uint16_t val);      /* core0         */
+bool ipc_try_recv(uint32_t *w);             /* core1 loop, non-blocking      */
 
 #endif /* IPC_H */

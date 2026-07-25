@@ -13,6 +13,7 @@ pico_sdk_init()
 add_executable(ge120_cardreader
     src/main.c
     src/core1_main.c
+    src/ipc.c
     src/feeder.c
     src/wire_tx.c
     src/wire_rx.c

@@ -241,12 +241,16 @@ XIP**, and core1 must keep running through them.
 | `PIO1_IRQ_0` | RE byte captured | highest |
 | `IO_IRQ_BANK0` (proc1 routing) | TU03N edge on GP26 | high |
 | `PIO0_IRQ_0` | presenter FIFO wants data | normal |
-| `SIO_IRQ_FIFO` | core0 command mailbox | low |
+| `SIO_IRQ_FIFO` | lockout victim handshake (pico-sdk owns it) | low |
 
-### Inter-core protocol (`include/ipc.h`)
+### Inter-core protocol (`include/ipc.h`, `src/ipc.c`)
 
-- core0 → core1: `multicore_fifo` opcodes `ARM(slot)`, `DISARM`, `REWIND`,
-  `SET_PARAM(id,val)`, `INJECT_ERROR`, `EJECT`.
+- core0 → core1: opcodes `ARM(slot)`, `DISARM`, `REWIND`, `SET_PARAM(id,val)`,
+  `INJECT_ERROR`, `EJECT` over a pico_util `queue_t` — **not** the SIO
+  multicore FIFO: core1 is a `multicore_lockout` victim (for core0's
+  `flash_safe_execute`) and the SDK's lockout IRQ handler pops and discards
+  every FIFO word that isn't its magic. `ipc_send()` ends with `__sev()` so
+  core1's `__wfe()` idle loop wakes.
 - core1 → core0: nothing blocking — core1 writes a `volatile` status struct
   (state, card/col/half, mode, counters) and appends to a lock-free event
   ring `{timestamp_us, kind, byte}` recording every RE byte, TU00N/TU03N,

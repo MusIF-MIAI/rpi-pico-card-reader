@@ -11,6 +11,7 @@
 
 #include "feeder.h"
 #include "ge_proto.h"
+#include "ipc.h"
 
 void wire_tx_init(void);     /* wire_tx.c: PIO0 presenter                    */
 void wire_rx_init(void);     /* wire_rx.c: PIO1 RE capture + TU03N IRQ       */
@@ -32,9 +33,10 @@ void __not_in_flash_func(core1_entry)(void)
      * ARCHITECTURE.md sec. 7. */
 
     while (true) {
-        /* Mailbox from core0 (non-blocking). */
-        while (multicore_fifo_rvalid())
-            feeder_on_ipc(multicore_fifo_pop_blocking());
+        /* Op queue from core0 (non-blocking; ipc_send ends with __sev). */
+        uint32_t w;
+        while (ipc_try_recv(&w))
+            feeder_on_ipc(w);
         feeder_poll();
         __wfe();
     }

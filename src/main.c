@@ -21,6 +21,7 @@ int main(void)
     storage_init();
     usb_composite_init();
 
+    ipc_init();
     multicore_launch_core1(core1_entry);
 
     while (true) {

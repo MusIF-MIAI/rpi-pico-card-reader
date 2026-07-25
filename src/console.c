@@ -10,7 +10,6 @@
 #include <string.h>
 
 #include "tusb.h"
-#include "pico/multicore.h"
 
 #include "config.h"
 #include "console.h"
@@ -51,11 +50,6 @@ void con_printf(const char *fmt, ...)
         off += (int)w;
     }
     tud_cdc_write_flush();
-}
-
-static void ipc_send(uint8_t op, uint8_t arg, uint16_t val)
-{
-    multicore_fifo_push_blocking(IPC_WORD(op, arg, val));
 }
 
 static int mount(void)
