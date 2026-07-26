@@ -65,6 +65,18 @@ static enum tc_mode effective_mode(uint16_t card)
     return fd.latched_mode;
 }
 
+/* LUPOB per-card handshake, single point of truth. The GE latches the
+ * FRONTS on this line: ready (high) while armed and waiting for a command
+ * or parked after a released end-of-card; busy (low) from command-accept
+ * until the FININ release -- and whenever disarmed, presenting, in error,
+ * or out of cards. Called after every state change. */
+static void lupob_update(void)
+{
+    wire_tx_set_ready(fd.deck && !fd.presenting && !fd.finin_pending &&
+                      (g_feeder_status.state == FS_ARMED_WAIT ||
+                       g_feeder_status.state == FS_CARD_DONE));
+}
+
 /* Deassert the standing FININ -- on TU03N (a), the next command (b), or the
  * feeder_poll timeout (c); it must not leak into the next card
  * (reader.c:98-107, OPEN #4). */
@@ -163,6 +175,7 @@ static void start_presenting(void)
     ev_push(EV_PRESENT_START, (uint8_t)g_feeder_status.card);
     g_feeder_status.state = FS_PRESENTING;
     fd.presenting = 1;
+    lupob_update();                    /* busy front, D us before strobe 1 */
 
     busy_wait_us_32(fd.d_us);          /* D: command -> first strobe delay */
     while (fd.presenting && !wire_tx_full())
@@ -218,6 +231,7 @@ void feeder_on_re_cmd(uint8_t re)
         ev_push(EV_ANOMALY, re);
         break;
     }
+    lupob_update();
 }
 
 void feeder_on_tu03(void)
@@ -229,6 +243,7 @@ void feeder_on_tu03(void)
     if (fd.deck && g_feeder_status.state == FS_CARD_DONE) {
         finin_release();
         advance_card();
+        lupob_update();                /* ready front: card fed, reader free */
     }
 }
 
@@ -294,6 +309,7 @@ void feeder_on_ipc(uint32_t word)
         g_feeder_status.state = FS_ERROR;
         break;
     }
+    lupob_update();
 }
 
 /* Returns nonzero while a timeout is pending, so core1's loop keeps polling
@@ -301,10 +317,12 @@ void feeder_on_ipc(uint32_t word)
 int feeder_poll(void)
 {
     if (fd.finin_pending) {
-        if ((int32_t)(time_us_32() - fd.finin_deadline) >= 0)
+        if ((int32_t)(time_us_32() - fd.finin_deadline) >= 0) {
             finin_release();           /* OPEN #4 release path (c) */
-        else
+            lupob_update();            /* ready front on timeout release */
+        } else {
             return 1;
+        }
     }
     /* TODO: idle auto-rewind policy (armed + mid-deck + quiet for N s +
      * fresh 0x40). */

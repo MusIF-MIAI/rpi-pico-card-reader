@@ -6,8 +6,9 @@
 #include <stdint.h>
 
 void wire_tx_init(void);       /* core1: PIO program + TXNFULL IRQ (off)    */
-void wire_tx_arm(void);        /* restart SM; idle side-set = LUPOB ready   */
+void wire_tx_arm(void);        /* restart SM (LUPOB is separate, see below) */
 void wire_tx_disarm(void);     /* stop SM, drain, all pins inactive         */
+void wire_tx_set_ready(bool ready); /* LUPOB per-card handshake (feeder)    */
 void wire_tx_feed_irq(bool on);/* TXNFULL source (level: only while feeding)*/
 bool wire_tx_full(void);
 unsigned wire_tx_fifo_level(void);  /* diagnostic for console status */

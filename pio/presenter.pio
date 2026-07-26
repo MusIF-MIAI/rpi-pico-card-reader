@@ -1,5 +1,5 @@
 ;
-; presenter -- drive the LU data bus, LU08N character strobe, LUPOR and FININ
+; presenter -- drive the LU data bus, LU08N character strobe and FININ
 ; toward the GE-120 channel-1 input.
 ;
 ; One TX FIFO word per presented nibble:
@@ -11,49 +11,47 @@
 ;   bits 16:9   W  = LU08N strobe width, in SM ticks (8 bits, <=25.5 us @10MHz)
 ;   bits 31:17  G  = gap after the strobe, in SM ticks (15 bits, <=3.27 ms)
 ;
-; Side-set (2 bits, base GP9):
-;   bit 0 -> GP9   LU08N  (logical: 1 = strobe asserted)
-;   bit 1 -> GP10  LUPOR  (logical: 1 = ready)
-; The two are always written as complements, enforcing the PELEA invariant
-; PELEA = !(LU08 & LUPOR)  (gemu signals.h:933): the reader is never "ready"
-; while a character is on the lines.
+; Side-set (1 bit): GP9 = LU08N (logical: 1 = strobe asserted).
 ;
-; All GE wires are active-low; every pin uses GPIO_OVERRIDE_INVERT so this
-; program (and the firmware) works in active-high logic.
+; LUPOB (GP10) is NOT part of this program: the GE latches its *fronts*, so
+; it is a per-CARD handshake, not a per-character complement. core1's feeder
+; drives it as a software GPIO (wire_tx_set_ready): high = ready while armed
+; and waiting, low from command-accept (before the first strobe) until the
+; FININ release / card advance. Holding it low across the whole card also
+; satisfies PELEA = !(LU08 & LUPO) (gemu signals.h:933). Ready is wire-HIGH
+; (bench-confirmed): GP10 drives non-inverted.
+;
+; All other GE wires are active-low; their pins use GPIO_OVERRIDE_INVERT so
+; this program (and the firmware) works in active-high logic.
 ;
 ; Clocking: run the SM at 10 MHz (clkdiv = sys_clk/10MHz), 1 tick = 100 ns.
 ; Data setup before the strobe edge is the 2 instructions between `out pins`
 ; and the first strobe tick (~200 ns) plus the [3] delay = ~0.5 us default.
-;
-; Idle/disarmed levels are set by the CPU before enabling the SM:
-; data 0, FININ 0, LU08 0, LUPOR = 1 when armed / 0 when disarmed.
 
 .program presenter
-.side_set 2
+.side_set 1
 
 .wrap_target
-    pull block      side 0b10        ; idle: LU08=0, LUPOR=1; wait for a nibble
-    out pins, 9     side 0b10 [3]    ; data + FININ on the pins; setup time S
-    out x, 8        side 0b10        ; X <- W ticks
+    pull block      side 0        ; idle: LU08 inactive; wait for a nibble
+    out pins, 9     side 0 [3]    ; data + FININ on the pins; setup time S
+    out x, 8        side 0        ; X <- W ticks
 wloop:
-    jmp x-- wloop   side 0b01        ; strobe: LU08=1, LUPOR=0, held W ticks
-    out y, 15       side 0b10        ; Y <- G ticks; strobe released
+    jmp x-- wloop   side 1        ; strobe: LU08 asserted, held W ticks
+    out y, 15       side 0        ; Y <- G ticks; strobe released
 gloop:
-    jmp y-- gloop   side 0b10        ; inter-character gap
+    jmp y-- gloop   side 0        ; inter-character gap
 .wrap
 
 % c-sdk {
 #include "hardware/clocks.h"
 
-// GP0..GP8 = OUT (LU00N-07N + FININ); GP9,GP10 = side-set (LU08N, LUPOR).
+// GP0..GP8 = OUT (LU00N-07N + FININ); GP9 = side-set (LU08N).
+// GP10 (LUPOB) is a software GPIO owned by the feeder -- see wire_tx.c.
 static inline void presenter_program_init(PIO pio, uint sm, uint offset)
 {
-    for (uint pin = 0; pin <= 10; pin++) {
+    for (uint pin = 0; pin <= 9; pin++) {
         pio_gpio_init(pio, pin);
-        /* Active-low wires, except LUPOB (GP10): bench-confirmed ready =
-         * wire HIGH, so it drives non-inverted. */
-        gpio_set_outover(pin, pin == 10 ? GPIO_OVERRIDE_NORMAL
-                                        : GPIO_OVERRIDE_INVERT);
+        gpio_set_outover(pin, GPIO_OVERRIDE_INVERT);  /* active-low wires */
     }
 
     pio_sm_config c = presenter_program_get_default_config(offset);
@@ -62,11 +60,11 @@ static inline void presenter_program_init(PIO pio, uint sm, uint offset)
     sm_config_set_out_shift(&c, true /*shift right*/, false, 32);
     sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / 10e6f); /* 100 ns tick */
 
-    pio_sm_set_consecutive_pindirs(pio, sm, 0, 11, true /*out*/);
-    /* Disarmed idle: everything inactive, including LUPOR (not ready). */
-    pio_sm_set_pins_with_mask(pio, sm, 0, 0x7FFu);
+    pio_sm_set_consecutive_pindirs(pio, sm, 0, 10, true /*out*/);
+    /* Disarmed idle: everything inactive. */
+    pio_sm_set_pins_with_mask(pio, sm, 0, 0x3FFu);
     pio_sm_init(pio, sm, offset, &c);
-    /* CPU enables the SM (and raises LUPOR) on ARM. */
+    /* CPU enables the SM on ARM. */
 }
 
 /* Pack one presentation word. w_ticks/g_ticks in 100 ns units. */

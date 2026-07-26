@@ -38,6 +38,14 @@ void wire_tx_init(void)
     tx_sm = pio_claim_unused_sm(tx_pio, true);
     presenter_program_init(tx_pio, tx_sm, tx_offset);  /* SM left disabled */
 
+    /* LUPOB: per-card ready handshake, software GPIO (the GE latches its
+     * fronts -- see presenter.pio header). Ready = wire HIGH, so this pin
+     * drives non-inverted, unlike every other output. Boot = not ready. */
+    gpio_init(GP_LUPOR);
+    gpio_set_outover(GP_LUPOR, GPIO_OVERRIDE_NORMAL);
+    gpio_put(GP_LUPOR, 0);
+    gpio_set_dir(GP_LUPOR, GPIO_OUT);
+
     irq_set_exclusive_handler(PIO0_IRQ_0, pio0_irq0_handler);
     irq_set_priority(PIO0_IRQ_0, 0x80);   /* below RE capture and TU03N */
     irq_set_enabled(PIO0_IRQ_0, true);
@@ -59,8 +67,8 @@ void wire_tx_arm(void)
     pio_sm_clear_fifos(tx_pio, tx_sm);
     pio_sm_restart(tx_pio, tx_sm);
     pio_sm_exec(tx_pio, tx_sm, pio_encode_jmp(tx_offset));
-    /* Enabled and stalled at `pull block side 0b10`: LU08 inactive, LUPOB
-     * ready -- the armed idle. */
+    /* Enabled and stalled at `pull block`: LU08/data inactive. The ready
+     * front is the feeder's call (lupob_update), not ours. */
     pio_sm_set_enabled(tx_pio, tx_sm, true);
 }
 
@@ -69,8 +77,16 @@ void wire_tx_disarm(void)
     wire_tx_feed_irq(false);
     pio_sm_set_enabled(tx_pio, tx_sm, false);
     pio_sm_clear_fifos(tx_pio, tx_sm);
-    /* Everything inactive, including LUPOB = not ready. */
-    pio_sm_set_pins_with_mask(tx_pio, tx_sm, 0, 0x7FFu);
+    /* Everything inactive. */
+    pio_sm_set_pins_with_mask(tx_pio, tx_sm, 0, 0x3FFu);
+}
+
+/* LUPOB per-card handshake: ready (wire high) between cards while armed,
+ * busy (low) from command-accept until FININ release. The GE wants the
+ * FRONTS: statically-asserted ready never arms its request logic. */
+void wire_tx_set_ready(bool ready)
+{
+    gpio_put(GP_LUPOR, ready);
 }
 
 bool wire_tx_full(void)
@@ -90,10 +106,10 @@ void wire_tx_push(uint8_t nibble, bool fini, uint16_t w_ticks, uint16_t g_ticks)
 }
 
 /* Deassert the standing FININ (held by the last card's OUT word) without
- * touching data or the LU08/LUPOB side-set: exec a SET on GP_FININ alone
- * with the side-set bits at the armed idle (LU08=0, LUPOB=1). Only called
- * between cards, when the SM is stalled at `pull block` -- the exec slots
- * into the stall and the pull's own side-set reasserts right after. */
+ * touching data or the LU08N side-set: exec a SET on GP_FININ alone with
+ * the side-set bit at idle (LU08=0). Only called between cards, when the
+ * SM is stalled at `pull block` -- the exec slots into the stall and the
+ * pull's own side-set reasserts right after. */
 void wire_tx_release_finin(void)
 {
     uint32_t saved = tx_pio->sm[tx_sm].pinctrl;
@@ -103,6 +119,6 @@ void wire_tx_release_finin(void)
         | (1u << PIO_SM0_PINCTRL_SET_COUNT_LSB)
         | ((uint32_t)GP_FININ << PIO_SM0_PINCTRL_SET_BASE_LSB);
     pio_sm_exec(tx_pio, tx_sm,
-                pio_encode_set(pio_pins, 0) | pio_encode_sideset(2, 0b10));
+                pio_encode_set(pio_pins, 0) | pio_encode_sideset(1, 0));
     tx_pio->sm[tx_sm].pinctrl = saved;
 }
