@@ -225,8 +225,11 @@ static void cmd_set(char *arg)
     uint16_t *field = NULL;
     uint8_t param = 0;
 
-    if      (!strcmp(name, "w"))     { field = &g_cfg.w_ticks;     param = PARAM_W_TICKS; }
-    else if (!strcmp(name, "g"))     { field = &g_cfg.g_ticks;     param = PARAM_G_TICKS; }
+    /* Field widths in the presenter word: W is 8 bits, G is 15. */
+    if      (!strcmp(name, "w"))     { field = &g_cfg.w_ticks;     param = PARAM_W_TICKS;
+                                       if (v > 255)   { v = 255;   con_printf("(w capped to 255)\r\n"); } }
+    else if (!strcmp(name, "g"))     { field = &g_cfg.g_ticks;     param = PARAM_G_TICKS;
+                                       if (v > 32767) { v = 32767; con_printf("(g capped to 32767)\r\n"); } }
     else if (!strcmp(name, "s"))     { field = &g_cfg.s_ticks;     param = PARAM_S_TICKS; }
     else if (!strcmp(name, "d"))     { field = &g_cfg.d_us;        param = PARAM_D_US; }
     else if (!strcmp(name, "finto")) { field = &g_cfg.finin_to_us; param = PARAM_FININ_TO_US; }
@@ -245,12 +248,33 @@ static void cmd_set(char *arg)
     con_printf("OK %s = %u ('save' to persist)\r\n", name, v);
 }
 
+/* go <n>: reposition to the Nth card of the feed order (1 = rewind). */
+static void cmd_go(char *arg)
+{
+    unsigned n = arg ? (unsigned)strtoul(arg, NULL, 0) : 0;
+    if (g_feeder_status.state == FS_DISARMED) {
+        con_printf("ERR not armed\r\n");
+        return;
+    }
+    uint16_t start = g_deck[0].loader_card > 0
+                     ? (uint16_t)g_deck[0].loader_card : 0;
+    unsigned max = g_deck[0].n_cards - start;
+    if (n < 1 || n > max) {
+        con_printf("ERR card number 1..%u\r\n", max);
+        return;
+    }
+    ipc_send(IPC_GO, 0, (uint16_t)n);
+    con_printf("OK at card %u/%u (deck index %u)\r\n",
+               n, max, start + n - 1);
+}
+
 static void help(void)
 {
     con_printf(
       "ls | batches | arm <file|batch> [--raw] | arm <f.bin>[@hexbase]\r\n"
-      "disarm | rewind | eject | status | set <w|g|s|d|finto|plc|arw> <v>\r\n"
-      "save | trace on|off | inject-error | version | help\r\n");
+      "disarm | rewind | go <n> | eject | status\r\n"
+      "set <w|g|s|d|finto|plc|arw> <v> | save\r\n"
+      "trace on|off | inject-error | version | help\r\n");
 }
 
 static void execute(char *cmd)
@@ -264,6 +288,7 @@ static void execute(char *cmd)
     else if (!strcmp(cmd, "arm"))     cmd_arm(arg);
     else if (!strcmp(cmd, "disarm")) { ipc_send(IPC_DISARM, 0, 0); con_printf("OK\r\n"); }
     else if (!strcmp(cmd, "rewind")) { ipc_send(IPC_REWIND, 0, 0); con_printf("OK\r\n"); }
+    else if (!strcmp(cmd, "go"))      cmd_go(arg);
     else if (!strcmp(cmd, "eject"))  { ipc_send(IPC_EJECT, 0, 0);  con_printf("OK\r\n"); }
     else if (!strcmp(cmd, "status"))  cmd_status();
     else if (!strcmp(cmd, "set"))     cmd_set(arg);

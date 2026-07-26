@@ -28,6 +28,7 @@ enum ipc_op {
     IPC_EJECT,          /* skip current card                                 */
     IPC_SET_PARAM,      /* arg: enum ipc_param; val: new value               */
     IPC_INJECT_ERROR,   /* assert LUREN until GE sends 0x47                  */
+    IPC_GO,             /* val: 1-based card in feed order (1 = rewind)      */
 };
 
 enum ipc_param {

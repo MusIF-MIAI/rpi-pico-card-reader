@@ -345,6 +345,23 @@ void feeder_on_ipc(uint32_t word)
         status_pin_set(GP_LUREN, true);
         g_feeder_status.state = FS_ERROR;
         break;
+    case IPC_GO: {
+        /* Reposition to the Nth card of the FEED order (1-based; card 1 is
+         * where rewind goes, i.e. the loader). Aborts any in-flight card. */
+        if (!fd.deck)
+            break;
+        uint32_t start = fd.deck->loader_card > 0
+                         ? (uint32_t)fd.deck->loader_card : 0;
+        uint32_t tgt = start + IPC_VAL(word) - 1;
+        if (IPC_VAL(word) < 1 || tgt >= fd.deck->n_cards)
+            break;                 /* console validates; belt and braces */
+        cursor_reset();
+        g_feeder_status.card  = (uint16_t)tgt;
+        g_feeder_status.state = FS_ARMED_WAIT;
+        status_pin_set(GP_FIDEN, false);
+        wire_tx_arm();
+        break;
+    }
     }
     lupob_update();
 }
