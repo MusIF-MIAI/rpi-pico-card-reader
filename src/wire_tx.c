@@ -19,11 +19,16 @@ static PIO  tx_pio = pio0;
 static uint tx_sm;
 static uint tx_offset;
 
+static volatile uint32_t tx_feed_irqs;
+
+uint32_t wire_tx_feed_irqs(void) { return tx_feed_irqs; }
+
 /* TXNFULL is level-triggered: enabled only while a card is being presented
  * (an idle empty FIFO would storm). feeder_on_txfeed pushes one word per
  * entry; the IRQ re-fires while the FIFO still has room. */
 static void __not_in_flash_func(pio0_irq0_handler)(void)
 {
+    tx_feed_irqs++;
     feeder_on_txfeed();
 }
 
@@ -71,6 +76,11 @@ void wire_tx_disarm(void)
 bool wire_tx_full(void)
 {
     return pio_sm_is_tx_fifo_full(tx_pio, tx_sm);
+}
+
+unsigned wire_tx_fifo_level(void)
+{
+    return pio_sm_get_tx_fifo_level(tx_pio, tx_sm);
 }
 
 void wire_tx_push(uint8_t nibble, bool fini, uint16_t w_ticks, uint16_t g_ticks)

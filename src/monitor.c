@@ -23,14 +23,23 @@ int  monitor_trace(void)       { return trace_on; }
 
 #ifdef PICO_BUILD
 #include "pico/time.h"
+#include "hardware/sync.h"
 static inline uint32_t now_us(void) { return time_us_32(); }
+static inline uint32_t ev_lock(void)   { return save_and_disable_interrupts(); }
+static inline void ev_unlock(uint32_t s) { restore_interrupts(s); }
 #else
 static uint32_t fake_us;                    /* host tests */
 static inline uint32_t now_us(void) { return fake_us += 10; }
+static inline uint32_t ev_lock(void)   { return 0; }
+static inline void ev_unlock(uint32_t s) { (void)s; }
 #endif
 
+/* Single writer = core1, but from THREE nested IRQ priorities (RE capture
+ * can preempt the TU03N/TXNFULL handlers mid-push) -- brief IRQ-off section
+ * keeps a preempting push from overwriting the same slot. */
 void ev_push(uint8_t kind, uint8_t arg)
 {
+    uint32_t save = ev_lock();
     uint32_t wr = g_events.wr;
     struct event *e = &g_events.ev[wr & (EV_RING_LEN - 1)];
     e->t_us = now_us();
@@ -38,6 +47,7 @@ void ev_push(uint8_t kind, uint8_t arg)
     e->arg  = arg;
     e->seq  = (uint16_t)wr;
     __atomic_store_n(&g_events.wr, wr + 1, __ATOMIC_RELEASE);
+    ev_unlock(save);
 }
 
 int ev_pop(struct event *out)
@@ -64,6 +74,7 @@ static const char *ev_name(uint8_t kind)
     case EV_AUTOFEED:      return "AUTOFD ";
     case EV_FIDEN:         return "FIDEN  ";
     case EV_ANOMALY:       return "ANOMALY";
+    case EV_TU00_EDGE:     return "TU00-E ";
     default:               return "?      ";
     }
 }

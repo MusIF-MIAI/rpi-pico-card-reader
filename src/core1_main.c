@@ -12,9 +12,9 @@
 #include "feeder.h"
 #include "ge_proto.h"
 #include "ipc.h"
+#include "wire_rx.h"
 #include "wire_tx.h"
 
-void wire_rx_init(void);     /* wire_rx.c: PIO1 RE capture + TU03N IRQ       */
 void status_pins_init(void); /* status_pins.c: FIDEN/POM01/LUREN             */
 
 void __not_in_flash_func(core1_entry)(void)
@@ -33,6 +33,7 @@ void __not_in_flash_func(core1_entry)(void)
      * ARCHITECTURE.md sec. 7. */
 
     while (true) {
+        g_feeder_status.heartbeat++;   /* liveness, shown by console status */
         /* Op queue from core0 (non-blocking; ipc_send ends with __sev). */
         uint32_t w;
         while (ipc_try_recv(&w))

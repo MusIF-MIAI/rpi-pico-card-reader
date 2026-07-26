@@ -50,6 +50,7 @@ enum feeder_state {
 
 /* Written only by core1 (single writer), read by core0. */
 struct feeder_status {
+    volatile uint32_t heartbeat;     /* core1 main-loop counter (liveness)   */
     volatile uint8_t  state;         /* enum feeder_state                    */
     volatile uint8_t  mode;          /* enum tc_mode currently latched       */
     volatile uint16_t card;          /* current card index                   */

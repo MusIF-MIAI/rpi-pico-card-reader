@@ -18,6 +18,9 @@
 #include "ipc.h"
 #include "storage.h"
 
+#include "wire_rx.h"
+#include "wire_tx.h"
+
 void monitor_set_trace(int on);
 int  monitor_trace(void);
 int  cfg_save(void);
@@ -149,7 +152,21 @@ static const char *state_name(uint8_t s)
 static void cmd_status(void)
 {
     const struct feeder_status *st = &g_feeder_status;
+    const struct wire_rx_stats *rx = wire_rx_stats();
     con_printf("state:    %s\r\n", state_name(st->state));
+    con_printf("core1:    heartbeat %lu\r\n", (unsigned long)st->heartbeat);
+    /* Wire diagnostics -- each strobe observed at two independent points:
+     * tu00 edges (GPIO) vs re words (PIO). Diverging counters name the
+     * broken stage; sm-at names the instruction the capture SM waits in. */
+    con_printf("wire rx:  tu00 edges %lu  tu03 edges %lu  pio irqs %lu  "
+               "re words %lu\r\n"
+               "          rxfifo %u  sm at %s  inte0 0x%02lx\r\n",
+               (unsigned long)rx->tu00_edges, (unsigned long)rx->tu03_edges,
+               (unsigned long)rx->pio_irqs, (unsigned long)rx->re_words,
+               wire_rx_fifo_level(), wire_rx_sm_where(),
+               (unsigned long)wire_rx_irq_mask());
+    con_printf("wire tx:  txfifo %u  feed irqs %lu\r\n",
+               wire_tx_fifo_level(), (unsigned long)wire_tx_feed_irqs());
     if (st->state != FS_DISARMED)
         con_printf("deck:     '%s' (%u cards, loader %d)\r\n"
                    "cursor:   card %u col %u half %u\r\n",

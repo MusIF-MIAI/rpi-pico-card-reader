@@ -10,6 +10,8 @@ void wire_tx_arm(void);        /* restart SM; idle side-set = LUPOB ready   */
 void wire_tx_disarm(void);     /* stop SM, drain, all pins inactive         */
 void wire_tx_feed_irq(bool on);/* TXNFULL source (level: only while feeding)*/
 bool wire_tx_full(void);
+unsigned wire_tx_fifo_level(void);  /* diagnostic for console status */
+uint32_t wire_tx_feed_irqs(void);   /* TXNFULL handler entries       */
 void wire_tx_push(uint8_t nibble, bool fini, uint16_t w_ticks,
                   uint16_t g_ticks);          /* callers check wire_tx_full */
 void wire_tx_release_finin(void); /* deassert standing FININ between cards  */

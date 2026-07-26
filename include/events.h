@@ -21,6 +21,9 @@ enum ev_kind {
     EV_AUTOFEED,        /* advance without TU03N                             */
     EV_FIDEN,           /* deck exhausted                                    */
     EV_ANOMALY,         /* arg = anomaly code                                */
+    EV_TU00_EDGE,       /* raw TU00N edge via GPIO IRQ (diagnostic shadow of
+                         * the PIO capture -- an edge with no RE-CMD after it
+                         * means the PIO path lost the strobe)               */
 };
 
 struct event {
