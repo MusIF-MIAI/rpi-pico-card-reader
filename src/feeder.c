@@ -23,12 +23,19 @@ static struct {
     const struct deck_img *deck;   /* armed deck (RAM), NULL if disarmed    */
     enum tc_mode latched_mode;     /* from COCON-equivalent command decode  */
     uint8_t      presenting;
+    uint8_t      cmd_pending;      /* read cmd latched, waiting TU03N feed  */
     uint8_t      finin_pending;    /* FININ nibble pushed, not yet released */
+    uint32_t     cmd_deadline;     /* fallback: present anyway at +d_us     */
     uint32_t     finin_deadline;   /* time_us_32 for release path (c)       */
     /* live copies of the tunables (core1-owned; updated via IPC_SET_PARAM) */
     uint16_t     w_ticks, g_ticks, s_ticks, d_us, finin_to_us;
     uint8_t      post_loader_colbin, auto_rewind;
 } fd;
+
+/* Wire-measured: the machine feeds (TU03N) ~100 us after the read command
+ * and arms its input transfer right after; strobes must not precede the
+ * feed. Small settle from the trigger to the first strobe: */
+#define TRIGGER_TO_STROBE_US 20u
 
 static void cursor_reset(void)
 {
@@ -40,6 +47,7 @@ static void cursor_reset(void)
     g_feeder_status.col  = 0;
     g_feeder_status.half = 0;
     fd.presenting = 0;
+    fd.cmd_pending = 0;
     fd.finin_pending = 0;
 }
 
@@ -76,7 +84,8 @@ static enum tc_mode effective_mode(uint16_t card)
  * or out of cards. Called after every state change. */
 static void lupob_update(void)
 {
-    wire_tx_set_ready(fd.deck && !fd.presenting && !fd.finin_pending &&
+    wire_tx_set_ready(fd.deck && !fd.presenting && !fd.cmd_pending &&
+                      !fd.finin_pending &&
                       (g_feeder_status.state == FS_ARMED_WAIT ||
                        g_feeder_status.state == FS_CARD_DONE));
 }
@@ -155,22 +164,41 @@ static void present_next(void)
     wire_tx_feed_irq(false);
 }
 
-/* A read command arrived: start strobing the current card. Runs in the RE
- * capture IRQ. */
-static void start_presenting(void)
+/* A read command arrived: latch it and wait for the machine's TU03N card
+ * feed -- strobing before the feed loses the card (the transfer is not
+ * armed yet). d_us is the fallback: present anyway if no feed comes. */
+static void prepare_presentation(void)
 {
     if (!fd.deck)
         return;
+    if (g_feeder_status.state != FS_ARMED_WAIT &&
+        g_feeder_status.state != FS_CARD_DONE)
+        return;                        /* DONE / ERROR / already presenting */
     finin_release();
+    fd.cmd_pending  = 1;
+    fd.cmd_deadline = time_us_32() + fd.d_us;
+    lupob_update();                    /* busy front at command-accept */
+}
+
+/* The trigger: TU03N feed (via_feed=1) or the d_us timeout. Advances past
+ * a parked end-of-card, then strobes the current card. IRQ context. */
+static void trigger_present(int via_feed)
+{
+    if (!fd.cmd_pending)
+        return;
+    fd.cmd_pending = 0;
     if (g_feeder_status.state == FS_CARD_DONE) {
-        /* Parked at end-of-card and no TU03N came: fallback advance
-         * (ARCHITECTURE.md sec. 6, OPEN #3). */
-        g_feeder_status.n_autofeeds++;
-        ev_push(EV_AUTOFEED, (uint8_t)g_feeder_status.card);
+        if (!via_feed) {
+            /* No feed came at all: fallback advance (OPEN #3). */
+            g_feeder_status.n_autofeeds++;
+            ev_push(EV_AUTOFEED, (uint8_t)g_feeder_status.card);
+        }
         advance_card();
     }
-    if (g_feeder_status.state != FS_ARMED_WAIT)
-        return;                        /* DONE / ERROR / already presenting */
+    if (g_feeder_status.state != FS_ARMED_WAIT) {
+        lupob_update();                /* deck exhausted: FS_DONE + FIDEN */
+        return;
+    }
 
     enum tc_mode eff = effective_mode(g_feeder_status.card);
     g_feeder_status.mode = eff;
@@ -179,9 +207,9 @@ static void start_presenting(void)
     ev_push(EV_PRESENT_START, (uint8_t)g_feeder_status.card);
     g_feeder_status.state = FS_PRESENTING;
     fd.presenting = 1;
-    lupob_update();                    /* busy front, D us before strobe 1 */
+    lupob_update();                    /* stays busy through the card */
 
-    busy_wait_us_32(fd.d_us);          /* D: command -> first strobe delay */
+    busy_wait_us_32(TRIGGER_TO_STROBE_US);
     while (fd.presenting && !wire_tx_full())
         present_next();                /* prefill the FIFO */
     if (fd.presenting)
@@ -195,18 +223,18 @@ void feeder_on_re_cmd(uint8_t re)
 
     switch (re) {
     case GE_CMD_READ_UNCHANGED:
-        start_presenting();            /* mode untouched */
+        prepare_presentation();        /* mode untouched */
         break;
     case GE_CMD_READ_NORMAL_1: case GE_CMD_READ_NORMAL_2:
     case GE_CMD_READ_MIXED_1:  case GE_CMD_READ_MIXED_2:
         fd.latched_mode = TC_NORMAL;
         ev_push(EV_MODE, TC_NORMAL);
-        start_presenting();
+        prepare_presentation();
         break;
     case GE_CMD_READ_BINARY:
         fd.latched_mode = TC_COLBIN;
         ev_push(EV_MODE, TC_COLBIN);
-        start_presenting();
+        prepare_presentation();
         break;
     case GE_CMD_PUT_BINARY:
         fd.latched_mode = TC_COLBIN;   /* logged; we never accept output */
@@ -242,9 +270,14 @@ void feeder_on_tu03(void)
 {
     ev_push(EV_TU03, 0);
     g_feeder_status.n_feeds++;
-    /* Any TU03N means "feed" (OPEN #3). Only honoured when parked at an
-     * end-of-card; mid-presentation or idle pulses are just logged. */
-    if (fd.deck && g_feeder_status.state == FS_CARD_DONE) {
+    if (fd.cmd_pending) {
+        /* The machine's card feed after a read command: THE presentation
+         * trigger (strobes before the feed miss the unarmed transfer). */
+        finin_release();
+        trigger_present(1);
+    } else if (fd.deck && g_feeder_status.state == FS_CARD_DONE) {
+        /* Feed with no command pending: advance past the parked card
+         * (any TU03N means "feed", OPEN #3). */
         finin_release();
         advance_card();
         lupob_update();                /* ready front: card fed, reader free */
@@ -320,6 +353,12 @@ void feeder_on_ipc(uint32_t word)
  * instead of parking in __wfe (nothing else would wake it in time). */
 int feeder_poll(void)
 {
+    if (fd.cmd_pending) {
+        if ((int32_t)(time_us_32() - fd.cmd_deadline) >= 0)
+            trigger_present(0);        /* no TU03N came: d_us fallback */
+        else
+            return 1;
+    }
     if (fd.finin_pending) {
         if ((int32_t)(time_us_32() - fd.finin_deadline) >= 0) {
             finin_release();           /* OPEN #4 release path (c) */

@@ -73,7 +73,9 @@ uint8_t transcode_column(uint16_t column, enum tc_mode mode);
 #define T_SETUP_TICKS_DEF     5    /* S: 0.5 us data setup                  */
 #define T_STROBE_TICKS_DEF   35    /* W: 3.5 us LU08N width (OPEN #2)       */
 #define T_GAP_TICKS_DEF     115    /* G: 11.5 us gap (BI20 spacing ~15 us)  */
-#define T_CMD_DELAY_US_DEF   20    /* D: command -> first strobe            */
+#define T_CMD_DELAY_US_DEF 50000   /* D: max wait for the TU03N feed after a
+                                    * read command before presenting anyway
+                                    * (the feed normally triggers at ~100us) */
 #define T_FININ_TIMEOUT_US_DEF 1000 /* FININ auto-release (OPEN #4)         */
 
 #endif /* GE_PROTO_H */
