@@ -25,6 +25,7 @@ add_executable(ge120_cardreader
     src/fat_ro.c
     src/deck.c
     src/deckload.c
+    src/bin2deck.c
     src/surgery.c
     src/transcode.c
     src/config.c

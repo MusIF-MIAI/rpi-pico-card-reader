@@ -3,6 +3,7 @@
  * only). Pure C over fat_ro + the cap parser; host-testable.
  */
 #include <string.h>
+#include "bin2deck.h"
 #include "deckload.h"
 
 static int open_with_fallback(const struct fat_vol *vol, const char *name,
@@ -78,6 +79,26 @@ int deckload_batch(const struct fat_vol *vol, const struct surgery_batch *b,
     strncpy(dst->name, b->name, sizeof(dst->name) - 1);
     dst->name[sizeof(dst->name) - 1] = 0;
     deck_find_loader_card(dst);
+    return 0;
+}
+
+int deckload_bin(const struct fat_vol *vol, const char *name,
+                 uint16_t base, uint16_t entry, struct deck_img *dst)
+{
+    struct fat_file f;
+    if (fat_open(vol, name, &f))
+        return -1;
+
+    struct bin2deck b;
+    if (bin2deck_begin(&b, dst, name, base))
+        return -2;
+    uint8_t buf[512];
+    int n;
+    while ((n = fat_read(&f, buf, sizeof(buf))) > 0)
+        if (bin2deck_feed(&b, buf, (size_t)n))
+            return -2;
+    if (n < 0 || bin2deck_end(&b, entry))
+        return -2;
     return 0;
 }
 

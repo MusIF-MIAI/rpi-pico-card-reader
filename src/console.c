@@ -11,6 +11,7 @@
 
 #include "tusb.h"
 
+#include "bin2deck.h"
 #include "config.h"
 #include "console.h"
 #include "deckload.h"
@@ -111,6 +112,26 @@ static void cmd_arm(char *arg)
     char *flag = strtok(NULL, " ");
     int raw = flag && !strcmp(flag, "--raw");
 
+    /* "<file>.bin[@hexbase]": synthesize a loader deck from a raw binary,
+     * loading (and entering) at hexbase (default 0x0100). */
+    unsigned base = 0x0100;
+    char *at = strchr(name, '@');
+    if (at) {
+        *at = 0;
+        base = (unsigned)strtoul(at + 1, NULL, 16);
+    }
+    size_t nl = strlen(name);
+    int is_bin = nl > 4 &&
+                 (name[nl-4] == '.') &&
+                 (name[nl-3] | 0x20) == 'b' &&
+                 (name[nl-2] | 0x20) == 'i' &&
+                 (name[nl-1] | 0x20) == 'n';
+    if (is_bin && (base < BIN2DECK_MIN_BASE || base > 0xFFFF)) {
+        con_printf("ERR base 0x%x: loader lives below 0x%04x\r\n",
+                   base, (unsigned)BIN2DECK_MIN_BASE);
+        return;
+    }
+
     storage_flush();
     vol_ok = 0;
     if (!mount()) {
@@ -119,8 +140,11 @@ static void cmd_arm(char *arg)
     }
 
     int rc;
-    const struct surgery_batch *b = deckload_find_batch(name);
-    if (b)
+    const struct surgery_batch *b = is_bin ? NULL : deckload_find_batch(name);
+    if (is_bin)
+        rc = deckload_bin(&vol, name, (uint16_t)base, (uint16_t)base,
+                          &g_deck[0]);
+    else if (b)
         rc = deckload_batch(&vol, b, &g_deck[0], &g_deck[1]);
     else
         rc = deckload_prepare(&vol, name, raw, &g_deck[0], &g_deck[1]);
@@ -129,6 +153,9 @@ static void cmd_arm(char *arg)
                    rc == -1 ? "not found / unreadable" : "parse/surgery failed");
         return;
     }
+    if (is_bin)
+        con_printf("bin -> %u cards, load+entry 0x%04x\r\n",
+                   g_deck[0].n_cards, base);
     ipc_send(IPC_ARM, 0, 0);
     strncpy(g_cfg.last_deck, name, sizeof(g_cfg.last_deck) - 1);
     con_printf("OK armed '%s': %u cards, loader at %d%s\r\n",
@@ -221,9 +248,9 @@ static void cmd_set(char *arg)
 static void help(void)
 {
     con_printf(
-      "ls | batches | arm <file|batch> [--raw] | disarm | rewind | eject\r\n"
-      "status | set <w|g|s|d|finto|plc|arw> <v> | save\r\n"
-      "trace on|off | inject-error | version | help\r\n");
+      "ls | batches | arm <file|batch> [--raw] | arm <f.bin>[@hexbase]\r\n"
+      "disarm | rewind | eject | status | set <w|g|s|d|finto|plc|arw> <v>\r\n"
+      "save | trace on|off | inject-error | version | help\r\n");
 }
 
 static void execute(char *cmd)

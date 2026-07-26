@@ -22,6 +22,12 @@ int deckload_prepare(const struct fat_vol *vol, const char *name, int raw,
 int deckload_batch(const struct fat_vol *vol, const struct surgery_batch *b,
                    struct deck_img *dst, struct deck_img *tmp);
 
+/* Synthesize a scatter-loader deck from a raw .bin file: embedded loader
+ * card + payload cards loading at `base` + jump-to-`entry` termination
+ * (bin2deck.c). Returns 0 or negative. */
+int deckload_bin(const struct fat_vol *vol, const char *name,
+                 uint16_t base, uint16_t entry, struct deck_img *dst);
+
 const struct surgery_batch *deckload_find_batch(const char *name);
 
 #endif /* DECKLOAD_H */
