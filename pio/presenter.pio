@@ -15,14 +15,15 @@
 ;
 ; LUPOB (GP10) is NOT part of this program: the GE latches its *fronts*, so
 ; it is a per-CARD handshake, not a per-character complement. core1's feeder
-; drives it as a software GPIO (wire_tx_set_ready): high = ready while armed
-; and waiting, low from command-accept (before the first strobe) until the
-; FININ release / card advance. Holding it low across the whole card also
-; satisfies PELEA = !(LU08 & LUPO) (gemu signals.h:933). Ready is wire-HIGH
-; (bench-confirmed): GP10 drives non-inverted.
+; drives it as a software GPIO (wire_tx_set_ready). Bench-verified levels:
+; wire LOW = ready/idle, wire HIGH = busy "scanning the card" -- high from
+; command-accept (before the first strobe) until the FININ release / card
+; advance. Busy across the whole card also satisfies PELEA = !(LU08 & LUPO)
+; (gemu signals.h:933).
 ;
-; All other GE wires are active-low; their pins use GPIO_OVERRIDE_INVERT so
-; this program (and the firmware) works in active-high logic.
+; All GE wires including LUPOB are active-low on the wire; every pin uses
+; GPIO_OVERRIDE_INVERT so this program (and the firmware) works in
+; active-high logic (logical 1 = LUPOB ready = wire low).
 ;
 ; Clocking: run the SM at 10 MHz (clkdiv = sys_clk/10MHz), 1 tick = 100 ns.
 ; Data setup before the strobe edge is the 2 instructions between `out pins`

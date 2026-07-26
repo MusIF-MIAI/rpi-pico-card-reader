@@ -38,11 +38,12 @@ void wire_tx_init(void)
     tx_sm = pio_claim_unused_sm(tx_pio, true);
     presenter_program_init(tx_pio, tx_sm, tx_offset);  /* SM left disabled */
 
-    /* LUPOB: per-card ready handshake, software GPIO (the GE latches its
-     * fronts -- see presenter.pio header). Ready = wire HIGH, so this pin
-     * drives non-inverted, unlike every other output. Boot = not ready. */
+    /* LUPOB: per-card busy/ready handshake, software GPIO (the GE latches
+     * its fronts -- see presenter.pio header). Bench-verified: wire HIGH =
+     * busy (scanning a card), wire LOW = ready/idle. Inverted like every
+     * other output (firmware logical 1 = ready = wire low). Boot = busy. */
     gpio_init(GP_LUPOR);
-    gpio_set_outover(GP_LUPOR, GPIO_OVERRIDE_NORMAL);
+    gpio_set_outover(GP_LUPOR, GPIO_OVERRIDE_INVERT);
     gpio_put(GP_LUPOR, 0);
     gpio_set_dir(GP_LUPOR, GPIO_OUT);
 
@@ -81,12 +82,12 @@ void wire_tx_disarm(void)
     pio_sm_set_pins_with_mask(tx_pio, tx_sm, 0, 0x3FFu);
 }
 
-/* LUPOB per-card handshake: ready (wire high) between cards while armed,
- * busy (low) from command-accept until FININ release. The GE wants the
- * FRONTS: statically-asserted ready never arms its request logic. */
+/* LUPOB per-card handshake: ready (wire LOW) between cards while armed;
+ * busy (wire HIGH) from command-accept until FININ release, while the
+ * emulator is "scanning the card". The GE wants the FRONTS. */
 void wire_tx_set_ready(bool ready)
 {
-    gpio_put(GP_LUPOR, ready);
+    gpio_put(GP_LUPOR, ready);   /* inverted pad: logical ready = wire low */
 }
 
 bool wire_tx_full(void)

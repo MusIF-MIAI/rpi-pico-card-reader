@@ -19,7 +19,9 @@
  * data (the channel packs two low nibbles per byte), LU04-07 held inactive */
 #define GP_FININ       8   /* L1.06  end-of-card, PIO0 out bit 8            */
 #define GP_LU08        9   /* M1.15  char strobe, PIO0 side-set bit 0       */
-#define GP_LUPOR      10   /* L1.07  ready, PIO0 side-set bit 1 (=!LU08)    */
+#define GP_LUPOR      10   /* L1.07  busy/ready handshake (software GPIO,
+                            * feeder): wire HIGH = busy scanning, LOW =
+                            * ready; fronts latched by the GE              */
 #define GP_FIDEN      11   /* L1.03  end-of-sequence (software GPIO)        */
 #define GP_POM01      12   /* M1.12  binary-mode indicator (software GPIO)  */
 #define GP_LUREN      13   /* L1.09  error (software GPIO)                  */
