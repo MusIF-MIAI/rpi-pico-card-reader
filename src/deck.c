@@ -135,10 +135,14 @@ int deck_find_loader_card(struct deck_img *img)
 {
     /* gemu sat_batches.c row8_loader_card(): the CR10/Hollerith loader card
      * carries a row-8 punch in column 3 (cols[2] == 0x0100). Search cards
-     * 1..4 (card 0 is the title card), fall back to card 1. */
+     * 0..4 -- captured box decks lead with a title card (loader at 1+), but
+     * synthesized decks (gasm --boot/--bootge) lead with the loader itself
+     * at index 0; skipping index 0 made those decks feed a body card as
+     * the "loader" and the IPL executed junk. Fall back to card 1 (the
+     * historical title+loader layout) when no marker is found. */
     int found = (img->n_cards > 1) ? 1 : 0;
     uint16_t limit = img->n_cards < 5 ? img->n_cards : 5;
-    for (uint16_t i = 1; i < limit; i++) {
+    for (uint16_t i = 0; i < limit; i++) {
         const uint16_t *cols = &img->cols[img->idx[i].off];
         if (img->idx[i].ncols >= 3 && cols[2] == 0x0100) {
             found = i;
