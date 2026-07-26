@@ -126,8 +126,10 @@ static void cmd_arm(char *arg)
                  (name[nl-3] | 0x20) == 'b' &&
                  (name[nl-2] | 0x20) == 'i' &&
                  (name[nl-1] | 0x20) == 'n';
-    if (is_bin && (base < BIN2DECK_MIN_BASE || base > 0xFFFF)) {
-        con_printf("ERR base 0x%x: loader lives below 0x%04x\r\n",
+    /* base 0 = IPL mode (whole <=40 byte program as one hex card, executed
+     * at 0x0000 by the IPL itself -- no loader). */
+    if (is_bin && base != 0 && (base < BIN2DECK_MIN_BASE || base > 0xFFFF)) {
+        con_printf("ERR base 0x%x: loader lives below 0x%04x (or use @0)\r\n",
                    base, (unsigned)BIN2DECK_MIN_BASE);
         return;
     }
@@ -154,7 +156,8 @@ static void cmd_arm(char *arg)
         return;
     }
     if (is_bin)
-        con_printf("bin -> %u cards, load+entry 0x%04x\r\n",
+        con_printf(base ? "bin -> %u cards, load+entry 0x%04x\r\n"
+                        : "bin -> %u hex card(s), IPL runs it at 0x0000\r\n",
                    g_deck[0].n_cards, base);
     ipc_send(IPC_ARM, 0, 0);
     strncpy(g_cfg.last_deck, name, sizeof(g_cfg.last_deck) - 1);

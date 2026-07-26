@@ -32,4 +32,11 @@ int bin2deck_feed(struct bin2deck *b, const uint8_t *data, size_t len);
  * Returns 0 or negative. */
 int bin2deck_end(struct bin2deck *b, uint16_t entry);
 
+/* IPL mode ("@0"): the whole program as ONE hex card -- the IPL itself
+ * nibble-packs it to 0x0000 and executes it there. No loader, no
+ * termination; len <= BIN2DECK_IPL_MAX bytes. */
+#define BIN2DECK_IPL_MAX 40u
+int bin2deck_ipl(struct deck_img *img, const char *name,
+                 const uint8_t *data, size_t len);
+
 #endif /* BIN2DECK_H */

@@ -132,3 +132,32 @@ int bin2deck_end(struct bin2deck *b, uint16_t entry)
     };
     return append_scatter_card(b->img, 0x0000, term, sizeof(term));
 }
+
+/* IPL hex encoding (inverse of transcode_column TC_HEX: nibble = sum of
+ * punched digit rows 0-9). Canonical punches: 0 = blank, 1-9 = the single
+ * row, 10-15 = row 9 + row (n-9). */
+static uint16_t nibble_to_hex_col(uint8_t n)
+{
+    if (!n)
+        return 0;
+    if (n <= 9)
+        return (uint16_t)(1u << n);
+    return (uint16_t)((1u << 9) | (1u << (n - 9)));
+}
+
+int bin2deck_ipl(struct deck_img *img, const char *name,
+                 const uint8_t *data, size_t len)
+{
+    if (len == 0 || len > BIN2DECK_IPL_MAX)
+        return -1;
+    memset(img, 0, sizeof(*img));
+    strncpy(img->name, name, sizeof(img->name) - 1);
+    img->loader_card = 0;             /* presented TC_HEX, like a loader */
+
+    uint16_t cols[CARD_COLS] = {0};   /* trailing blanks decode as 0x00 */
+    for (size_t i = 0; i < len; i++) {
+        cols[2 * i]     = nibble_to_hex_col((uint8_t)(data[i] >> 4));
+        cols[2 * i + 1] = nibble_to_hex_col((uint8_t)(data[i] & 0x0F));
+    }
+    return append_card_cols(img, cols);
+}

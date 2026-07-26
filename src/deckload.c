@@ -89,6 +89,15 @@ int deckload_bin(const struct fat_vol *vol, const char *name,
     if (fat_open(vol, name, &f))
         return -1;
 
+    if (base == 0) {
+        /* IPL mode: the whole (<= 40 byte) program as one hex card. */
+        uint8_t buf[BIN2DECK_IPL_MAX + 1];
+        int n = fat_read(&f, buf, sizeof(buf));
+        if (n <= 0 || bin2deck_ipl(dst, name, buf, (size_t)n))
+            return -2;
+        return 0;
+    }
+
     struct bin2deck b;
     if (bin2deck_begin(&b, dst, name, base))
         return -2;

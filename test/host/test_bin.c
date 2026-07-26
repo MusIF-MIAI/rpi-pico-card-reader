@@ -83,7 +83,27 @@ int main(void)
         if (card_byte(&img, t, 11 + i) != term[i])
             FAIL("termination byte %d", i);
 
-    printf("bin2deck: %d bytes -> %u cards, byte-exact round trip\nALL OK\n",
+    printf("bin2deck: %d bytes -> %u cards, byte-exact round trip\n",
            N, img.n_cards);
+
+    /* IPL mode: <=40 bytes as one hex card, round-tripped through the
+     * firmware's TC_HEX decoder with the IPL's hi-then-lo nibble packing. */
+    uint8_t prog[40];
+    for (int i = 0; i < 40; i++)
+        prog[i] = bin[i * 7 % N];
+    if (bin2deck_ipl(&img, "ipl.bin", prog, sizeof(prog)))
+        FAIL("ipl build");
+    if (img.n_cards != 1 || img.loader_card != 0)
+        FAIL("ipl deck shape");
+    for (int i = 0; i < 40; i++) {
+        uint8_t hi = transcode_column(img.cols[2 * i],     TC_HEX);
+        uint8_t lo = transcode_column(img.cols[2 * i + 1], TC_HEX);
+        if (((hi << 4) | lo) != prog[i])
+            FAIL("ipl byte %d: %02x != %02x", i, (hi << 4) | lo, prog[i]);
+    }
+    if (bin2deck_ipl(&img, "big.bin", bin, 41) == 0)
+        FAIL("ipl accepted 41 bytes");
+
+    printf("bin2deck: IPL card round trip OK\nALL OK\n");
     return 0;
 }
