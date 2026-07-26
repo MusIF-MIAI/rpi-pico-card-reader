@@ -6,3 +6,4 @@ test/host/fixture.img
 test/host/*.cap
 decks/
 __pycache__/
+test/host/test_bin
