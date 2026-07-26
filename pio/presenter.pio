@@ -50,7 +50,10 @@ static inline void presenter_program_init(PIO pio, uint sm, uint offset)
 {
     for (uint pin = 0; pin <= 10; pin++) {
         pio_gpio_init(pio, pin);
-        gpio_set_outover(pin, GPIO_OVERRIDE_INVERT);  /* active-low wires */
+        /* Active-low wires, except LUPOB (GP10): bench-confirmed ready =
+         * wire HIGH, so it drives non-inverted. */
+        gpio_set_outover(pin, pin == 10 ? GPIO_OVERRIDE_NORMAL
+                                        : GPIO_OVERRIDE_INVERT);
     }
 
     pio_sm_config c = presenter_program_get_default_config(offset);
