@@ -12,8 +12,8 @@
 #include "feeder.h"
 #include "ge_proto.h"
 #include "ipc.h"
+#include "wire_tx.h"
 
-void wire_tx_init(void);     /* wire_tx.c: PIO0 presenter                    */
 void wire_rx_init(void);     /* wire_rx.c: PIO1 RE capture + TU03N IRQ       */
 void status_pins_init(void); /* status_pins.c: FIDEN/POM01/LUREN             */
 
@@ -28,16 +28,16 @@ void __not_in_flash_func(core1_entry)(void)
     wire_tx_init();
     feeder_init();
 
-    /* RX IRQs (PIO1_IRQ_0, IO_IRQ_BANK0) are claimed inside wire_rx_init,
-     * on this core. TODO(step 4): PIO0_IRQ_0 (presenter TXNFULL) in
-     * wire_tx; priorities per ARCHITECTURE.md sec. 7. */
+    /* All wire IRQs (PIO1_IRQ_0, IO_IRQ_BANK0, PIO0_IRQ_0) are claimed
+     * inside wire_rx_init/wire_tx_init, on this core, priorities per
+     * ARCHITECTURE.md sec. 7. */
 
     while (true) {
         /* Op queue from core0 (non-blocking; ipc_send ends with __sev). */
         uint32_t w;
         while (ipc_try_recv(&w))
             feeder_on_ipc(w);
-        feeder_poll();
-        __wfe();
+        if (!feeder_poll())     /* nonzero = timeout pending, keep polling */
+            __wfe();
     }
 }

@@ -16,7 +16,8 @@ void feeder_on_txfeed(void);         /* PIO0 TX FIFO wants more nibbles     */
 /* Mailbox commands from core0 (IPC_* opcodes): */
 void feeder_on_ipc(uint32_t word);
 
-/* Idle poll from core1's main loop (timeouts: FININ release, auto-rewind). */
-void feeder_poll(void);
+/* Idle poll from core1's main loop (timeouts: FININ release, auto-rewind).
+ * Returns nonzero while a timeout is pending -- caller must not __wfe. */
+int feeder_poll(void);
 
 #endif /* FEEDER_H */
