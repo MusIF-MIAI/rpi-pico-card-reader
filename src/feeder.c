@@ -32,7 +32,11 @@ static struct {
 
 static void cursor_reset(void)
 {
-    g_feeder_status.card = 0;
+    /* Start the feed AT the loader card, skipping any pre-loader chaff
+     * (banner/header cards in the capture): the machine's IPL must get the
+     * loader first, or it executes junk (gemu cardreader.c:492-506). */
+    g_feeder_status.card = (fd.deck && fd.deck->loader_card > 0)
+                           ? (uint16_t)fd.deck->loader_card : 0;
     g_feeder_status.col  = 0;
     g_feeder_status.half = 0;
     fd.presenting = 0;
