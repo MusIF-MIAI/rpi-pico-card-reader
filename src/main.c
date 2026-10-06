@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "console.h"
+#include "button.h"
 #include "ipc.h"
 #include "storage.h"
 
@@ -20,6 +21,7 @@ int main(void)
     cfg_load();
     storage_init();
     usb_composite_init();
+    button_init();
 
     ipc_init();
     multicore_launch_core1(core1_entry);
@@ -29,5 +31,7 @@ int main(void)
         console_poll();          /* command shell on CDC                   */
         monitor_drain();         /* event ring -> trace output             */
         storage_poll();          /* lazy flush of the MSC sector cache     */
+        if (button_poll())
+            console_arm_last();  /* GP14: re-arm the last armed deck       */
     }
 }

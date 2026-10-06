@@ -98,6 +98,81 @@ static void cmd_batches(void)
     con_printf("OK %d batch(es)\r\n", surgery_n_batches);
 }
 
+/* Arm a deck by name (name may carry "@hexbase" for .bin). Shared by the
+ * console command and the GP14 button. Returns 0 on success. */
+int arm_named(const char *name, int raw)
+{
+    char nbuf[104];
+    char *n = nbuf;
+    unsigned base = 0x0100;
+    char *at;
+    size_t nl;
+    int is_bin;
+    int rc;
+    const struct surgery_batch *b;
+
+    strncpy(nbuf, name, sizeof(nbuf) - 1);
+    nbuf[sizeof(nbuf) - 1] = 0;
+
+    /* "<file>.bin[@hexbase]": synthesize a loader deck from a raw binary,
+     * loading (and entering) at hexbase (default 0x0100). */
+    at = strchr(n, '@');
+    if (at) {
+        *at = 0;
+        base = (unsigned)strtoul(at + 1, NULL, 16);
+    }
+    nl = strlen(n);
+    is_bin = nl > 4 &&
+             (n[nl-4] == '.') &&
+             (n[nl-3] | 0x20) == 'b' &&
+             (n[nl-2] | 0x20) == 'i' &&
+             (n[nl-1] | 0x20) == 'n';
+    /* base 0 = IPL mode (whole <=40 byte program as one hex card, executed
+     * at 0x0000 by the IPL itself -- no loader). */
+    if (is_bin && base != 0 && (base < BIN2DECK_MIN_BASE || base > 0xFFFF)) {
+        con_printf("ERR base 0x%x: loader lives below 0x%04x (or use @0)\r\n",
+                   base, (unsigned)BIN2DECK_MIN_BASE);
+        return -1;
+    }
+
+    storage_flush();
+    vol_ok = 0;
+    if (!mount()) {
+        con_printf("ERR no FAT volume\r\n");
+        return -1;
+    }
+
+    b = is_bin ? NULL : deckload_find_batch(n);
+    if (is_bin)
+        rc = deckload_bin(&vol, n, (uint16_t)base, (uint16_t)base,
+                          &g_deck[0]);
+    else if (b)
+        rc = deckload_batch(&vol, b, &g_deck[0], &g_deck[1]);
+    else
+        rc = deckload_prepare(&vol, n, raw, &g_deck[0], &g_deck[1]);
+    if (rc) {
+        con_printf("ERR %s: %s\r\n", n,
+                   rc == -1 ? "not found / unreadable" : "parse/surgery failed");
+        return -1;
+    }
+    if (is_bin)
+        con_printf(base ? "bin -> %u cards, load+entry 0x%04x\r\n"
+                        : "bin -> %u hex card(s), IPL runs it at 0x0000\r\n",
+                   g_deck[0].n_cards, base);
+    /* Persist the full name (incl. @base) so the GP14 button re-arms the
+     * same load address after a reboot. Save before arming: state is
+     * guaranteed DISARMED here (cfg_save's precondition). */
+    strncpy(g_cfg.last_deck, name, sizeof(g_cfg.last_deck) - 1);
+    g_cfg.last_deck[sizeof(g_cfg.last_deck) - 1] = 0;
+    if (cfg_save())
+        con_printf("WARN config save failed; last deck not persisted\r\n");
+    ipc_send(IPC_ARM, 0, 0);
+    con_printf("OK armed '%s': %u cards, loader at %d%s\r\n",
+               g_deck[0].name, g_deck[0].n_cards, g_deck[0].loader_card,
+               raw ? " (raw)" : "");
+    return 0;
+}
+
 static void cmd_arm(char *arg)
 {
     if (g_feeder_status.state != FS_DISARMED) {
@@ -111,59 +186,19 @@ static void cmd_arm(char *arg)
     char *name = strtok(arg, " ");
     char *flag = strtok(NULL, " ");
     int raw = flag && !strcmp(flag, "--raw");
+    arm_named(name, raw);
+}
 
-    /* "<file>.bin[@hexbase]": synthesize a loader deck from a raw binary,
-     * loading (and entering) at hexbase (default 0x0100). */
-    unsigned base = 0x0100;
-    char *at = strchr(name, '@');
-    if (at) {
-        *at = 0;
-        base = (unsigned)strtoul(at + 1, NULL, 16);
-    }
-    size_t nl = strlen(name);
-    int is_bin = nl > 4 &&
-                 (name[nl-4] == '.') &&
-                 (name[nl-3] | 0x20) == 'b' &&
-                 (name[nl-2] | 0x20) == 'i' &&
-                 (name[nl-1] | 0x20) == 'n';
-    /* base 0 = IPL mode (whole <=40 byte program as one hex card, executed
-     * at 0x0000 by the IPL itself -- no loader). */
-    if (is_bin && base != 0 && (base < BIN2DECK_MIN_BASE || base > 0xFFFF)) {
-        con_printf("ERR base 0x%x: loader lives below 0x%04x (or use @0)\r\n",
-                   base, (unsigned)BIN2DECK_MIN_BASE);
+/* GP14 button: re-arm the last armed deck (persisted across reboot). */
+void console_arm_last(void)
+{
+    if (g_feeder_status.state != FS_DISARMED)
+        return;
+    if (!g_cfg.last_deck[0]) {
+        con_printf("ERR no last deck (arm one first)\r\n");
         return;
     }
-
-    storage_flush();
-    vol_ok = 0;
-    if (!mount()) {
-        con_printf("ERR no FAT volume\r\n");
-        return;
-    }
-
-    int rc;
-    const struct surgery_batch *b = is_bin ? NULL : deckload_find_batch(name);
-    if (is_bin)
-        rc = deckload_bin(&vol, name, (uint16_t)base, (uint16_t)base,
-                          &g_deck[0]);
-    else if (b)
-        rc = deckload_batch(&vol, b, &g_deck[0], &g_deck[1]);
-    else
-        rc = deckload_prepare(&vol, name, raw, &g_deck[0], &g_deck[1]);
-    if (rc) {
-        con_printf("ERR %s: %s\r\n", name,
-                   rc == -1 ? "not found / unreadable" : "parse/surgery failed");
-        return;
-    }
-    if (is_bin)
-        con_printf(base ? "bin -> %u cards, load+entry 0x%04x\r\n"
-                        : "bin -> %u hex card(s), IPL runs it at 0x0000\r\n",
-                   g_deck[0].n_cards, base);
-    ipc_send(IPC_ARM, 0, 0);
-    strncpy(g_cfg.last_deck, name, sizeof(g_cfg.last_deck) - 1);
-    con_printf("OK armed '%s': %u cards, loader at %d%s\r\n",
-               g_deck[0].name, g_deck[0].n_cards, g_deck[0].loader_card,
-               raw ? " (raw)" : "");
+    arm_named(g_cfg.last_deck, 0);
 }
 
 static const char *state_name(uint8_t s)

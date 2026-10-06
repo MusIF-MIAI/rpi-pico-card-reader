@@ -53,7 +53,10 @@ void cfg_load(void)
 
 struct save_args { const uint8_t *data; };
 
-static void do_save(void *param)
+/* SDK 2.x flash_safe_execute no longer copies the func to RAM itself: the
+ * callback must live in RAM, else the core XIP-fetches from the flash it is
+ * programming and hangs. */
+static void __not_in_flash_func(do_save)(void *param)
 {
     struct save_args *a = param;
     flash_range_erase(CFG_FLASH_OFFSET, FLASH_SECTOR_SIZE);

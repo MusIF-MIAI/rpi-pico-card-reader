@@ -33,6 +33,7 @@ add_executable(ge120_cardreader
     src/surgery.c
     src/transcode.c
     src/config.c
+    src/button.c
     src/monitor.c
 )
 
