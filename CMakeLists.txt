@@ -5,10 +5,14 @@ set(PICO_BOARD pico2_w)
 
 include(pico_sdk_import.cmake)
 
-project(ge120_cardreader C CXX ASM)
+project(ge120_cardreader C ASM)
 set(CMAKE_C_STANDARD 11)
 
 pico_sdk_init()
+
+# The SDK unconditionally force-feeds pico_cxx_options/new_delete.cpp into
+# every target (INTERFACE source); this project is pure C, so drop it.
+set_target_properties(pico_cxx_options PROPERTIES INTERFACE_SOURCES "")
 
 add_executable(ge120_cardreader
     src/main.c
