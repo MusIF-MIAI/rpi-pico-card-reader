@@ -1,5 +1,5 @@
 /*
- * button.c -- GP14 "arm last" button (core0).
+ * button.c -- GP14 "arm last / rewind" button (core0).
  *
  * Button wired GP14 -> GND, internal pull-up: idle high, pressed low.
  * button_poll() runs in the core0 main loop; a 20 ms debounce window plus

@@ -189,11 +189,15 @@ static void cmd_arm(char *arg)
     arm_named(name, raw);
 }
 
-/* GP14 button: re-arm the last armed deck (persisted across reboot). */
+/* GP14 button: re-arm the last armed deck (persisted across reboot) when
+ * DISARMED; just rewind to the first card when already armed. */
 void console_arm_last(void)
 {
-    if (g_feeder_status.state != FS_DISARMED)
+    if (g_feeder_status.state != FS_DISARMED) {
+        ipc_send(IPC_REWIND, 0, 0);
+        con_printf("OK rewind (already armed)\r\n");
         return;
+    }
     if (!g_cfg.last_deck[0]) {
         con_printf("ERR no last deck (arm one first)\r\n");
         return;
