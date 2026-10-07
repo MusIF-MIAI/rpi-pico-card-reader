@@ -10,6 +10,8 @@
 #include <string.h>
 
 #include "tusb.h"
+#include "pico/bootrom.h"
+#include "pico/stdlib.h"
 
 #include "bin2deck.h"
 #include "config.h"
@@ -37,12 +39,14 @@ void con_printf(const char *fmt, ...)
 {
     char buf[256];
     va_list ap;
+    int n;
+    int off;
     va_start(ap, fmt);
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    n = vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     if (n <= 0 || !tud_cdc_connected())
         return;
-    for (int off = 0; off < n; ) {
+    for (off = 0; off < n; ) {
         uint32_t w = tud_cdc_write(buf + off, (uint32_t)(n - off));
         if (!w) {
             tud_cdc_write_flush();
@@ -74,12 +78,13 @@ static int ls_cb(const char *name, uint32_t size, void *arg)
 
 static void cmd_ls(void)
 {
+    int n;
     vol_ok = 0;                       /* re-mount: host may have rewritten */
     if (!mount()) {
         con_printf("ERR no FAT volume (format the USB drive first)\r\n");
         return;
     }
-    int n = fat_list(&vol, ls_cb, NULL);
+    n = fat_list(&vol, ls_cb, NULL);
     if (n < 0)
         con_printf("ERR reading root directory\r\n");
     else
@@ -88,10 +93,12 @@ static void cmd_ls(void)
 
 static void cmd_batches(void)
 {
-    for (int i = 0; i < surgery_n_batches; i++) {
+    int i;
+    int s;
+    for (i = 0; i < surgery_n_batches; i++) {
         const struct surgery_batch *b = &surgery_batches[i];
         con_printf("  %-24s %s (", b->name, b->title);
-        for (int s = 0; s < b->n_src; s++)
+        for (s = 0; s < b->n_src; s++)
             con_printf("%s%s", s ? " + " : "", b->src[s].file);
         con_printf(")\r\n");
     }
@@ -109,6 +116,7 @@ int arm_named(const char *name, int raw)
     size_t nl;
     int is_bin;
     int rc;
+    const char *why;
     const struct surgery_batch *b;
 
     strncpy(nbuf, name, sizeof(nbuf) - 1);
@@ -151,8 +159,11 @@ int arm_named(const char *name, int raw)
     else
         rc = deckload_prepare(&vol, n, raw, &g_deck[0], &g_deck[1]);
     if (rc) {
-        con_printf("ERR %s: %s\r\n", n,
-                   rc == -1 ? "not found / unreadable" : "parse/surgery failed");
+        if (rc == -1)
+            why = "not found / unreadable";
+        else
+            why = "parse/surgery failed";
+        con_printf("ERR %s: %s\r\n", n, why);
         return -1;
     }
     if (is_bin)
@@ -175,6 +186,9 @@ int arm_named(const char *name, int raw)
 
 static void cmd_arm(char *arg)
 {
+    char *name;
+    char *flag;
+    int raw;
     if (g_feeder_status.state != FS_DISARMED) {
         con_printf("ERR already armed -- disarm first\r\n");
         return;
@@ -183,9 +197,9 @@ static void cmd_arm(char *arg)
         con_printf("ERR usage: arm <file|batch> [--raw]\r\n");
         return;
     }
-    char *name = strtok(arg, " ");
-    char *flag = strtok(NULL, " ");
-    int raw = flag && !strcmp(flag, "--raw");
+    name = strtok(arg, " ");
+    flag = strtok(NULL, " ");
+    raw = flag && !strcmp(flag, "--raw");
     arm_named(name, raw);
 }
 
@@ -222,6 +236,9 @@ static void cmd_status(void)
 {
     const struct feeder_status *st = &g_feeder_status;
     const struct wire_rx_stats *rx = wire_rx_stats();
+    const char *last = "(none)";
+    if (g_cfg.last_deck[0])
+        last = g_cfg.last_deck;
     con_printf("state:    %s\r\n", state_name(st->state));
     con_printf("core1:    heartbeat %lu\r\n", (unsigned long)st->heartbeat);
     /* Wire diagnostics -- each strobe observed at two independent points:
@@ -237,10 +254,11 @@ static void cmd_status(void)
     con_printf("wire tx:  txfifo %u  feed irqs %lu\r\n",
                wire_tx_fifo_level(), (unsigned long)wire_tx_feed_irqs());
     if (st->state != FS_DISARMED)
-        con_printf("deck:     '%s' (%u cards, loader %d)\r\n"
-                   "cursor:   card %u col %u half %u\r\n",
-                   g_deck[0].name, g_deck[0].n_cards, g_deck[0].loader_card,
-                   st->card, st->col, st->half);
+        con_printf("deck:     '%s' (%u cards, loader %d)\r\n",
+                   g_deck[0].name, g_deck[0].n_cards, g_deck[0].loader_card);
+    con_printf("last:     %s\r\n", last);
+    con_printf("cursor:   card %u col %u half %u\r\n",
+               st->card, st->col, st->half);
     con_printf("mode:     %u  (0=NORM 1=BIN 2=HEX 3=COLBIN)\r\n"
                "counters: cmds %lu feeds %lu autofeeds %lu nibbles %lu unknown %lu\r\n"
                "timing:   W=%u G=%u S=%u ticks (100ns)  D=%u us  finto=%u us\r\n"
@@ -257,34 +275,61 @@ static void cmd_status(void)
 
 static void cmd_set(char *arg)
 {
-    char *name = arg ? strtok(arg, " ") : NULL;
-    char *vstr = name ? strtok(NULL, " ") : NULL;
+    char *name;
+    char *vstr;
+    unsigned v;
+    uint16_t *field;
+    uint16_t policy;
+    uint8_t param;
+
+    name = arg ? strtok(arg, " ") : NULL;
+    vstr = name ? strtok(NULL, " ") : NULL;
     if (!name || !vstr) {
         con_printf("ERR usage: set <w|g|s|d|finto|plc|arw> <value>\r\n");
         return;
     }
-    unsigned v = (unsigned)strtoul(vstr, NULL, 0);
-    uint16_t *field = NULL;
-    uint8_t param = 0;
+    v = (unsigned)strtoul(vstr, NULL, 0);
+    field = NULL;
+    param = 0;
 
     /* Field widths in the presenter word: W is 8 bits, G is 15. */
-    if      (!strcmp(name, "w"))     { field = &g_cfg.w_ticks;     param = PARAM_W_TICKS;
-                                       if (v > 255)   { v = 255;   con_printf("(w capped to 255)\r\n"); } }
-    else if (!strcmp(name, "g"))     { field = &g_cfg.g_ticks;     param = PARAM_G_TICKS;
-                                       if (v > 32767) { v = 32767; con_printf("(g capped to 32767)\r\n"); } }
-    else if (!strcmp(name, "s"))     { field = &g_cfg.s_ticks;     param = PARAM_S_TICKS; }
-    else if (!strcmp(name, "d"))     { field = &g_cfg.d_us;        param = PARAM_D_US; }
-    else if (!strcmp(name, "finto")) { field = &g_cfg.finin_to_us; param = PARAM_FININ_TO_US; }
-    else if (!strcmp(name, "plc"))   { g_cfg.post_loader_colbin = v & 1; param = PARAM_POLICY; }
-    else if (!strcmp(name, "arw"))   { g_cfg.auto_rewind = v & 1;        param = PARAM_POLICY; }
-    else {
+    if (!strcmp(name, "w")) {
+        field = &g_cfg.w_ticks;
+        param = PARAM_W_TICKS;
+        if (v > 255) {
+            v = 255;
+            con_printf("(w capped to 255)\r\n");
+        }
+    } else if (!strcmp(name, "g")) {
+        field = &g_cfg.g_ticks;
+        param = PARAM_G_TICKS;
+        if (v > 32767) {
+            v = 32767;
+            con_printf("(g capped to 32767)\r\n");
+        }
+    } else if (!strcmp(name, "s")) {
+        field = &g_cfg.s_ticks;
+        param = PARAM_S_TICKS;
+    } else if (!strcmp(name, "d")) {
+        field = &g_cfg.d_us;
+        param = PARAM_D_US;
+    } else if (!strcmp(name, "finto")) {
+        field = &g_cfg.finin_to_us;
+        param = PARAM_FININ_TO_US;
+    } else if (!strcmp(name, "plc")) {
+        g_cfg.post_loader_colbin = v & 1;
+        param = PARAM_POLICY;
+    } else if (!strcmp(name, "arw")) {
+        g_cfg.auto_rewind = v & 1;
+        param = PARAM_POLICY;
+    } else {
         con_printf("ERR unknown parameter '%s'\r\n", name);
         return;
     }
     if (field)
         *field = (uint16_t)v;
-    uint16_t policy = (uint16_t)(g_cfg.post_loader_colbin |
-                                 (g_cfg.auto_rewind << 1));
+    policy = (uint16_t)(g_cfg.post_loader_colbin |
+                        (g_cfg.auto_rewind << 1));
     ipc_send(IPC_SET_PARAM, param,
              param == PARAM_POLICY ? policy : (uint16_t)v);
     con_printf("OK %s = %u ('save' to persist)\r\n", name, v);
@@ -293,14 +338,17 @@ static void cmd_set(char *arg)
 /* go <n>: reposition to the Nth card of the feed order (1 = rewind). */
 static void cmd_go(char *arg)
 {
-    unsigned n = arg ? (unsigned)strtoul(arg, NULL, 0) : 0;
+    unsigned n;
+    uint16_t start;
+    unsigned max;
+    n = arg ? (unsigned)strtoul(arg, NULL, 0) : 0;
     if (g_feeder_status.state == FS_DISARMED) {
         con_printf("ERR not armed\r\n");
         return;
     }
-    uint16_t start = g_deck[0].loader_card > 0
-                     ? (uint16_t)g_deck[0].loader_card : 0;
-    unsigned max = g_deck[0].n_cards - start;
+    start = g_deck[0].loader_card > 0
+            ? (uint16_t)g_deck[0].loader_card : 0;
+    max = g_deck[0].n_cards - start;
     if (n < 1 || n > max) {
         con_printf("ERR card number 1..%u\r\n", max);
         return;
@@ -310,13 +358,21 @@ static void cmd_go(char *arg)
                n, max, start + n - 1);
 }
 
+/* Reboot into BOOTSEL (USB flash) mode. Never returns. */
+static void cmd_bootloader(void)
+{
+    con_printf("rebooting to BOOTSEL (USB flash) -- drop uf2 now\r\n");
+    sleep_ms(100);            /* let the CDC line drain before the reset */
+    reset_usb_boot(0, 0);
+}
+
 static void help(void)
 {
     con_printf(
       "ls | batches | arm <file|batch> [--raw] | arm <f.bin>[@hexbase]\r\n"
       "disarm | rewind | go <n> | eject | status\r\n"
       "set <w|g|s|d|finto|plc|arw> <v> | save\r\n"
-      "trace on|off | inject-error | version | help\r\n");
+      "trace on|off | inject-error | version | help | bootloader\r\n");
 }
 
 static void execute(char *cmd)
@@ -324,23 +380,45 @@ static void execute(char *cmd)
     char *arg = strchr(cmd, ' ');
     if (arg)
         *arg++ = 0;
-    if (!*cmd)                        { }
-    else if (!strcmp(cmd, "ls"))      cmd_ls();
-    else if (!strcmp(cmd, "batches")) cmd_batches();
-    else if (!strcmp(cmd, "arm"))     cmd_arm(arg);
-    else if (!strcmp(cmd, "disarm")) { ipc_send(IPC_DISARM, 0, 0); con_printf("OK\r\n"); }
-    else if (!strcmp(cmd, "rewind")) { ipc_send(IPC_REWIND, 0, 0); con_printf("OK\r\n"); }
-    else if (!strcmp(cmd, "go"))      cmd_go(arg);
-    else if (!strcmp(cmd, "eject"))  { ipc_send(IPC_EJECT, 0, 0);  con_printf("OK\r\n"); }
-    else if (!strcmp(cmd, "status"))  cmd_status();
-    else if (!strcmp(cmd, "set"))     cmd_set(arg);
-    else if (!strcmp(cmd, "save"))    con_printf(cfg_save() ? "ERR save failed\r\n" : "OK saved\r\n");
-    else if (!strcmp(cmd, "trace"))  { monitor_set_trace(!(arg && !strcmp(arg, "off")));
-                                       con_printf("OK trace %s\r\n", monitor_trace() ? "on" : "off"); }
-    else if (!strcmp(cmd, "inject-error")) { ipc_send(IPC_INJECT_ERROR, 0, 0); con_printf("OK LUREN asserted\r\n"); }
-    else if (!strcmp(cmd, "version")) con_printf("ge120-cardreader step2 (" __DATE__ ")\r\n");
-    else if (!strcmp(cmd, "help"))    help();
-    else con_printf("ERR unknown command '%s' (try 'help')\r\n", cmd);
+    if (*cmd) {
+        if (!strcmp(cmd, "ls"))
+            cmd_ls();
+        else if (!strcmp(cmd, "batches"))
+            cmd_batches();
+        else if (!strcmp(cmd, "arm"))
+            cmd_arm(arg);
+        else if (!strcmp(cmd, "disarm")) {
+            ipc_send(IPC_DISARM, 0, 0);
+            con_printf("OK\r\n");
+        } else if (!strcmp(cmd, "rewind")) {
+            ipc_send(IPC_REWIND, 0, 0);
+            con_printf("OK\r\n");
+        } else if (!strcmp(cmd, "go"))
+            cmd_go(arg);
+        else if (!strcmp(cmd, "eject")) {
+            ipc_send(IPC_EJECT, 0, 0);
+            con_printf("OK\r\n");
+        } else if (!strcmp(cmd, "status"))
+            cmd_status();
+        else if (!strcmp(cmd, "set"))
+            cmd_set(arg);
+        else if (!strcmp(cmd, "save"))
+            con_printf(cfg_save() ? "ERR save failed\r\n" : "OK saved\r\n");
+        else if (!strcmp(cmd, "trace")) {
+            monitor_set_trace(!(arg && !strcmp(arg, "off")));
+            con_printf("OK trace %s\r\n", monitor_trace() ? "on" : "off");
+        } else if (!strcmp(cmd, "inject-error")) {
+            ipc_send(IPC_INJECT_ERROR, 0, 0);
+            con_printf("OK LUREN asserted\r\n");
+        } else if (!strcmp(cmd, "bootloader"))
+            cmd_bootloader();
+        else if (!strcmp(cmd, "version"))
+            con_printf("ge120-cardreader step2 (" __DATE__ ")\r\n");
+        else if (!strcmp(cmd, "help"))
+            help();
+        else
+            con_printf("ERR unknown command '%s' (try 'help')\r\n", cmd);
+    }
     con_printf("ge120> ");
 }
 
